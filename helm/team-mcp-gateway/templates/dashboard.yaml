@@ -1,0 +1,48 @@
+# dashboard.yaml
+# The React dashboard, served by nginx (non-root, port 8080).
+apiVersion: v1
+kind: Service
+metadata:
+  name: dashboard
+  labels: { app: dashboard }
+spec:
+  selector: { app: dashboard }
+  ports:
+    - port: 80
+      targetPort: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dashboard
+  labels: { app: dashboard }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: dashboard }
+  template:
+    metadata:
+      labels: { app: dashboard }
+    spec:
+      containers:
+        - name: dashboard
+          image: {{ include "tmg.image" (list . "dashboard") }}
+          imagePullPolicy: {{ .Values.images.pullPolicy }}
+          ports:
+            - containerPort: 8080
+          volumeMounts:
+            - name: tmp        # nginx needs a writable /tmp (the rest is read-only)
+              mountPath: /tmp
+          readinessProbe:
+            httpGet: { path: /healthz, port: 8080 }
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /healthz, port: 8080 }
+            initialDelaySeconds: 5
+            periodSeconds: 20
+          resources:
+            {{- toYaml .Values.dashboard.resources | nindent 12 }}
+          {{- include "tmg.containerSecurity" . | nindent 10 }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
