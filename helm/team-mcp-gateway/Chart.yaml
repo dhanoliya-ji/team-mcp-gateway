@@ -1,0 +1,9 @@
+# One Helm chart for the whole system.
+# The same chart is used for local (Kind) and production (k3s on a VPS).
+# Only the values file changes: values-local.yaml or values-prod.yaml.
+apiVersion: v2
+name: team-mcp-gateway
+description: WooCommerce store + our WooCommerce MCP server + team MCP gateway + dashboard + chat agent
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
