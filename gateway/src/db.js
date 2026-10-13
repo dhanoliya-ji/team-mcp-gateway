@@ -81,3 +81,12 @@ db.exec(`
 export function now() {
   return new Date().toISOString();
 }
+
+// ---------- Small upgrades for older databases ----------
+// New column: tools that only admins may see and call (comma separated names).
+// "ALTER TABLE" fails if the column already exists, so we ignore that error.
+try {
+  db.exec("ALTER TABLE servers ADD COLUMN admin_only_tools TEXT NOT NULL DEFAULT ''");
+} catch {
+  // column is already there
+}
