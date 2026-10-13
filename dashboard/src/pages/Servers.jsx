@@ -74,12 +74,31 @@ function ServerCard({ server, isAdmin, run }) {
 
       <div className="row">
         <b>Tools ({server.tools.length}):</b>
-        {server.tools.map((tool) => (
-          <span key={tool.name} className="badge" title={tool.description}>
-            {tool.name}
-          </span>
-        ))}
+        {server.tools.map((tool) => {
+          const locked = server.adminOnlyTools.includes(tool.name);
+          // Admins click a tool to make it "admin only" (locked) or open for everyone.
+          function toggleLock() {
+            if (!isAdmin) return;
+            const list = locked
+              ? server.adminOnlyTools.filter((name) => name !== tool.name)
+              : [...server.adminOnlyTools, tool.name];
+            run(() => api("PUT", "/api/servers/" + server.id, { adminOnlyTools: list }));
+          }
+          return (
+            <span
+              key={tool.name}
+              className="badge"
+              title={tool.description + (isAdmin ? "\n(click to lock / unlock for members)" : "")}
+              style={{ cursor: isAdmin ? "pointer" : "default" }}
+              onClick={toggleLock}
+            >
+              {locked ? "🔒 " : ""}
+              {tool.name}
+            </span>
+          );
+        })}
       </div>
+      {isAdmin && <div className="muted">🔒 = admin only. Click a tool to lock or unlock it for members.</div>}
 
       <div className="row">
         <button className="gray" onClick={() => run(() => api("POST", "/api/servers/" + server.id + "/check"))}>
