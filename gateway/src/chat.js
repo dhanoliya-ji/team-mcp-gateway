@@ -18,8 +18,23 @@ import { config } from "./config.js";
 // Stop after this many rounds, so a confused model cannot loop forever.
 const MAX_ROUNDS = 8;
 
-// Send the chat to the LLM (OpenAI-style "chat completions" API).
+// Send the chat to the LLM. If the LLM says "too many requests" (429),
+// wait a little and try again (free tiers have small per-minute limits).
 async function askLlm(messages, tools) {
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      return await askLlmOnce(messages, tools);
+    } catch (error) {
+      if (!error.message.includes("LLM error 429") || attempt === 3) throw error;
+      const waitSeconds = attempt * 5;
+      console.log("LLM rate limit, waiting " + waitSeconds + " s");
+      await new Promise((resolve) => setTimeout(resolve, waitSeconds * 1000));
+    }
+  }
+}
+
+// One call to the LLM (OpenAI-style "chat completions" API).
+async function askLlmOnce(messages, tools) {
   const response = await fetch(config.llm.baseUrl + "/chat/completions", {
     method: "POST",
     headers: {
