@@ -1,0 +1,114 @@
+# networkpolicies.yaml
+# NetworkPolicies are firewall rules between pods.
+# Rule 1: deny ALL incoming traffic to every pod in this namespace.
+# Then we open only the doors we need:
+#
+#   ingress controller -> wordpress, dashboard, gateway
+#   wordpress, setup   -> mariadb
+#   woo-mcp-server     -> wordpress
+#   gateway            -> woo / notes / utils MCP servers   (ONLY the gateway)
+#
+# We also limit what the MCP servers can call OUT (egress):
+#   woo-mcp-server can only talk to wordpress (and DNS)
+#   notes/utils can only talk to DNS
+{{- if .Values.networkPolicy.enabled }}
+{{- $ingressNs := .Values.ingress.controllerNamespace }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: deny-all-incoming
+spec:
+  podSelector: {}          # {} = every pod in this namespace
+  policyTypes: ["Ingress"]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress-controller
+spec:
+  # The public apps: only the ingress controller may reach them.
+  podSelector:
+    matchExpressions:
+      - { key: app, operator: In, values: [wordpress, dashboard, gateway] }
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $ingressNs }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mariadb-from-wordpress
+spec:
+  podSelector:
+    matchLabels: { app: mariadb }
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector: { matchLabels: { app: wordpress } }
+        - podSelector: { matchLabels: { app: store-setup } }
+      ports:
+        - port: 3306
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: wordpress-from-woo-mcp
+spec:
+  podSelector:
+    matchLabels: { app: wordpress }
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector: { matchLabels: { app: woo-mcp-server } }
+      ports:
+        - port: 80
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mcp-servers-from-gateway-only
+spec:
+  podSelector:
+    matchExpressions:
+      - { key: app, operator: In, values: [woo-mcp-server, notes-mcp-server, utils-mcp-server] }
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector: { matchLabels: { app: gateway } }
+      ports:
+        - port: 3000
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: woo-mcp-egress
+spec:
+  podSelector:
+    matchLabels: { app: woo-mcp-server }
+  policyTypes: ["Egress"]
+  egress:
+    - to:
+        - podSelector: { matchLabels: { app: wordpress } }
+      ports:
+        - port: 80
+    - ports:   # DNS, to find "wordpress" by name
+        - { port: 53, protocol: UDP }
+        - { port: 53, protocol: TCP }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: small-mcp-egress
+spec:
+  podSelector:
+    matchExpressions:
+      - { key: app, operator: In, values: [notes-mcp-server, utils-mcp-server] }
+  policyTypes: ["Egress"]
+  egress:
+    - ports:   # DNS only, nothing else
+        - { port: 53, protocol: UDP }
+        - { port: 53, protocol: TCP }
+{{- end }}
