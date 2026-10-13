@@ -1,0 +1,511 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Team MCP Gateway - Full Guide</title>
+<style>
+  @page { size: A4; margin: 18mm 16mm; }
+  body { font-family: "Segoe UI", Arial, sans-serif; font-size: 11pt; line-height: 1.55; color: #1f2328; }
+  h1 { font-size: 26pt; margin: 0 0 6px; }
+  h2 { font-size: 17pt; border-bottom: 2px solid #2f6feb; padding-bottom: 4px; margin-top: 30px; page-break-after: avoid; }
+  h3 { font-size: 13pt; margin-top: 20px; color: #24292f; page-break-after: avoid; }
+  p, li { margin: 5px 0; }
+  code { font-family: Consolas, monospace; font-size: 9.5pt; background: #f2f4f7; padding: 1px 4px; border-radius: 3px; }
+  pre { font-family: Consolas, monospace; font-size: 8.8pt; background: #f6f8fa; border: 1px solid #e1e4e8;
+        padding: 9px 11px; border-radius: 6px; white-space: pre-wrap; page-break-inside: avoid; line-height: 1.35; }
+  table { border-collapse: collapse; width: 100%; margin: 8px 0; font-size: 10pt; page-break-inside: avoid; }
+  th, td { border: 1px solid #d0d7de; padding: 5px 7px; text-align: left; vertical-align: top; }
+  th { background: #f2f4f7; }
+  .cover { text-align: center; padding-top: 170px; page-break-after: always; }
+  .cover .sub { font-size: 14pt; color: #57606a; margin-top: 10px; }
+  .cover .meta { margin-top: 70px; color: #57606a; }
+  .box { border-left: 4px solid #2f6feb; background: #f0f6ff; padding: 8px 12px; margin: 10px 0; page-break-inside: avoid; }
+  .warn { border-left-color: #d29922; background: #fff8e6; }
+  .good { border-left-color: #1a7f37; background: #eefbf1; }
+  .toc li { margin: 2px 0; }
+  .page-break { page-break-before: always; }
+  .small { font-size: 9.5pt; color: #57606a; }
+</style>
+</head>
+<body>
+
+<div class="cover">
+  <h1>Team MCP Gateway</h1>
+  <div class="sub">WooCommerce store + our own MCP server + a team MCP gateway + chat agent,<br>all on Kubernetes with Helm</div>
+  <div class="sub" style="margin-top:24px">The full guide: <b>what</b> we built, <b>how</b> we built it, and <b>why</b></div>
+  <div class="meta">Urumi AI FDE Internship &middot; Round 1 take-home<br>
+  Repo: github.com/dhanoliya-ji/team-mcp-gateway</div>
+</div>
+
+<h2>Contents</h2>
+<ol class="toc">
+  <li>The task in simple words</li>
+  <li>Words you need to know</li>
+  <li>The big picture</li>
+  <li>Tools and tech we used, and why</li>
+  <li>The order we built things in</li>
+  <li>Part 1: our WooCommerce MCP server</li>
+  <li>Part 2: the two extra MCP servers</li>
+  <li>Part 3: the gateway (file by file)</li>
+  <li>Part 4: the chat agent and its tool loop</li>
+  <li>Part 5: the React dashboard</li>
+  <li>Part 6: Kubernetes and Helm (template by template)</li>
+  <li>How one tool call travels, step by step</li>
+  <li>Security: keys, secrets, isolation</li>
+  <li>Problems we hit and how we fixed them</li>
+  <li>Testing: what we checked and what we saw</li>
+  <li>How to run it: local, production, upgrade, rollback</li>
+  <li>Demo video plan</li>
+  <li>Interview questions and simple answers</li>
+  <li>Limits and next steps</li>
+</ol>
+
+<!-- ===================================================== -->
+<h2>1. The task in simple words</h2>
+<p>Urumi asked us to build a small platform with <b>four layers</b>:</p>
+<ol>
+  <li><b>A store.</b> One online shop (WordPress + WooCommerce) running on Kubernetes.</li>
+  <li><b>Our own WooCommerce MCP server.</b> A program we write ourselves that gives AI tools to read and change the shop's products and orders.</li>
+  <li><b>A gateway and a dashboard.</b> The admin adds MCP servers once. The gateway connects to all of them and shows all their tools through <b>one</b> address. Each team member uses their own API key.</li>
+  <li><b>A chat agent.</b> A chat box in the dashboard. An AI model answers questions by calling the same tools through the gateway.</li>
+</ol>
+<p>Rules: everything runs in Kubernetes, installed with <b>Helm</b>. The same chart must work on a laptop (Kind) and on a server (k3s). No passwords in the code. Every tool call goes into an audit log.</p>
+
+<div class="box"><b>The short version:</b> one door (the gateway) in front of many MCP servers. Each person has their own key to the door. The door keeps the real keys of the servers hidden, writes down every visit, and can lock out a person or a server at any time.</div>
+
+<!-- ===================================================== -->
+<h2>2. Words you need to know</h2>
+<table>
+<tr><th>Word</th><th>Simple meaning</th></tr>
+<tr><td>Kubernetes (K8s)</td><td>A system that runs many programs (in containers) on one or more computers, restarts them when they crash, and connects them with a network.</td></tr>
+<tr><td>Container / image</td><td>An image is a packed program with everything it needs. A container is a running copy of an image.</td></tr>
+<tr><td>Pod</td><td>The smallest thing Kubernetes runs. Usually one container.</td></tr>
+<tr><td>Deployment</td><td>"Keep N copies of this pod running." If a pod dies, a new one starts.</td></tr>
+<tr><td>StatefulSet</td><td>Like a Deployment, but each pod keeps a fixed name and its own disk. Good for databases.</td></tr>
+<tr><td>Service</td><td>A fixed name and address for a group of pods, for example <code>wordpress</code>.</td></tr>
+<tr><td>Ingress</td><td>The front door from the internet into the cluster. It sends <code>store.localtest.me</code> to WordPress, and so on.</td></tr>
+<tr><td>PersistentVolumeClaim (PVC)</td><td>A request for a disk that survives pod restarts.</td></tr>
+<tr><td>Secret</td><td>A Kubernetes object that holds passwords and keys.</td></tr>
+<tr><td>NetworkPolicy</td><td>Firewall rules between pods: who may talk to whom.</td></tr>
+<tr><td>Probe (readiness / liveness)</td><td>Kubernetes asks the pod "are you ready?" and "are you alive?". If not alive, it restarts it. If not ready, it sends no traffic.</td></tr>
+<tr><td>Requests / limits</td><td>How much CPU and memory a pod is promised (request) and the most it may use (limit).</td></tr>
+<tr><td>Helm / chart / values</td><td>Helm installs apps on Kubernetes. A chart is a folder of templates. Values fill in the templates (for example the domain name).</td></tr>
+<tr><td>Kind</td><td>"Kubernetes in Docker": a real cluster on your laptop.</td></tr>
+<tr><td>k3s</td><td>A small, real Kubernetes for servers (VPS).</td></tr>
+<tr><td>MCP</td><td>Model Context Protocol: a standard way for AI apps to find and call tools. Messages are JSON-RPC.</td></tr>
+<tr><td>MCP server / client</td><td>The server offers tools. The client (Claude Code, Cursor, our gateway) lists and calls them.</td></tr>
+<tr><td>Streamable HTTP</td><td>The MCP transport we use: the client sends an HTTP POST to <code>/mcp</code> with a JSON-RPC message and gets the answer back.</td></tr>
+<tr><td>Tool</td><td>One action an AI can do, with a name, a description and an input schema. For example <code>list_orders</code>.</td></tr>
+<tr><td>Upstream server</td><td>A real MCP server behind the gateway (WooCommerce, notes, utils).</td></tr>
+<tr><td>Hash</td><td>A one-way fingerprint of a text. You can check a key against it, but you cannot get the key back from it.</td></tr>
+<tr><td>Encryption</td><td>Two-way: with the secret key you can get the original text back.</td></tr>
+<tr><td>Audit log</td><td>A list of every tool call: who, what, when, how long, and if it worked.</td></tr>
+<tr><td>LLM</td><td>Large Language Model, the AI that reads the chat and decides which tools to call.</td></tr>
+</table>
+
+<!-- ===================================================== -->
+<h2>3. The big picture</h2>
+<pre>
+                       INTERNET / YOUR BROWSER / MCP CLIENTS
+                                     |
+                 +-------------------+--------------------+
+                 |        Ingress (only 2 public hosts)    |
+                 | store.localtest.me  dashboard.localtest.me
+                 +--------+-----------------+--------------+
+                          |                 |  /api, /mcp        /
+                          v                 v                    v
+                   +-------------+   +-------------+       +-----------+
+                   |  WordPress  |   |   gateway   |       | dashboard |
+                   | +WooCommerce|   | MCP server  |       |  (React)  |
+                   +------+------+   | MCP client  |       +-----------+
+                          |          | keys, audit |
+                          v          | chat agent  |
+                   +-------------+   +------+------+
+                   |   MariaDB   |          |  ONLY the gateway may call these:
+                   +-------------+    +-----+-------------+------------------+
+                          ^           |                   |                  |
+                          |    +------v-------+   +-------v------+   +-------v------+
+                          +----| woo-mcp-     |   | notes-mcp-   |   | utils-mcp-   |
+                   REST API    | server       |   | server       |   | server       |
+                               +--------------+   +--------------+   +--------------+
+</pre>
+<p><b>Who talks to whom:</b></p>
+<ul>
+  <li>Shoppers use the store through the Ingress.</li>
+  <li>Admins and members use the dashboard through the Ingress. The dashboard calls the gateway's <code>/api</code>.</li>
+  <li>External MCP clients (Claude Code, Cursor, MCP Inspector) call the gateway's <code>/mcp</code> with their API key.</li>
+  <li>The chat agent lives inside the gateway and calls the gateway's own <code>/mcp</code>, as the logged-in user.</li>
+  <li>Only the gateway calls the three MCP servers. Only the WooCommerce MCP server calls WordPress's REST API.</li>
+</ul>
+
+<!-- ===================================================== -->
+<h2>4. Tools and tech we used, and why</h2>
+<table>
+<tr><th>Thing</th><th>What we used</th><th>Why</th></tr>
+<tr><td>Language</td><td>JavaScript on Node.js 24</td><td>One language for all servers and the dashboard. Very simple code. Node 24 has SQLite built in.</td></tr>
+<tr><td>MCP</td><td>Official MCP TypeScript SDK <code>@modelcontextprotocol/sdk</code> 1.32</td><td>It handles the protocol (initialize, tools/list, tools/call, Streamable HTTP) for us, both server and client side.</td></tr>
+<tr><td>Web server</td><td>Express 5</td><td>Small and well known.</td></tr>
+<tr><td>Input checks</td><td>zod</td><td>Describes each tool's inputs. The SDK turns it into JSON Schema for the AI.</td></tr>
+<tr><td>Gateway database</td><td>SQLite (<code>node:sqlite</code>) on a volume</td><td>Small data (users, keys, servers, audit). No extra database pod needed.</td></tr>
+<tr><td>Dashboard</td><td>React 19 + Vite, served by <code>nginx-unprivileged</code></td><td>Asked for React. Vite builds fast. nginx-unprivileged runs as non-root.</td></tr>
+<tr><td>Store</td><td><code>wordpress:7.0-php8.3-apache</code>, <code>mariadb:11.4</code>, WooCommerce 11.2</td><td>Official images. WooCommerce 11 needs WordPress 7.</td></tr>
+<tr><td>Store setup</td><td>WP-CLI (<code>wordpress:cli</code> image) in a Helm hook Job</td><td>Installs everything with no clicks, and is safe to run again.</td></tr>
+<tr><td>Local Kubernetes</td><td>Kind v0.33 + ingress-nginx</td><td>A real cluster in Docker. Port 80/443 mapped to the laptop.</td></tr>
+<tr><td>Packaging</td><td>One Helm chart, values-local.yaml / values-prod.yaml</td><td>Required. Same chart, only values change.</td></tr>
+<tr><td>LLM</td><td>Any OpenAI-style API. Default: Groq, <code>llama-3.3-70b-versatile</code></td><td>Free tier, fast, supports tool calling. Gemini or a local Ollama also work by changing two values.</td></tr>
+<tr><td>Production images</td><td>GitHub Actions -> ghcr.io</td><td>The VPS pulls ready images.</td></tr>
+</table>
+
+<!-- ===================================================== -->
+<h2>5. The order we built things in</h2>
+<p>We followed the advice "a working core is worth more than an unfinished bonus". We built from the bottom up and tested each layer before the next. Every small step is its own Git commit.</p>
+<ol>
+  <li><b>Repo start:</b> README, .gitignore, .gitattributes (Linux line endings, so shell scripts work in containers).</li>
+  <li><b>WooCommerce MCP server:</b> REST helper -> tools -> HTTP server -> Dockerfile. Tested <code>tools/list</code> and <code>ping</code> locally with curl.</li>
+  <li><b>Notes and utils MCP servers:</b> same pattern.</li>
+  <li><b>Kind cluster</b> with ingress-nginx (in the background while coding).</li>
+  <li><b>Gateway:</b> config -> database -> security helpers -> upstream client -> auth -> audit -> MCP endpoint -> SSRF check -> routes (login, servers, users, keys, audit) -> chat agent -> seed -> main file. Tested locally with two upstreams and one dead one.</li>
+  <li><b>Dashboard:</b> project -> API helper -> app shell with login -> styles -> pages (servers, keys, members, audit, chat) -> Dockerfile.</li>
+  <li><b>Helm chart:</b> Chart.yaml, values, helpers, Secret, MariaDB, WordPress, setup Job, 3 MCP servers, gateway, dashboard, Ingress, NetworkPolicies, NOTES, values files.</li>
+  <li><b>First install,</b> fix problems (section 14), full test with a script.</li>
+  <li><b>Stand-out:</b> tool permissions; hardening; docs; GitHub Actions; upgrade/rollback test.</li>
+</ol>
+
+<div class="page-break"></div>
+<!-- ===================================================== -->
+<h2>6. Part 1: our WooCommerce MCP server</h2>
+<p>Folder: <code>woo-mcp-server/</code>. We wrote it ourselves (no existing WooCommerce MCP plugin).</p>
+
+<h3>6.1 How it talks to the store, and why</h3>
+<p>It uses the <b>WooCommerce REST API</b> (<code>/wc/v3/products</code>, <code>/wc/v3/orders</code>) over plain HTTP inside the cluster, with a <b>consumer key and secret</b> (Basic auth).</p>
+<ul>
+  <li><b>Why REST and not WP-CLI?</b> REST is the official API for products and orders, works over the network, and lets the MCP server be its own small pod with its own limits and firewall rules. WP-CLI would need to run inside the WordPress pod.</li>
+  <li><b>Why <code>?rest_route=</code>?</b> It works even if WordPress "pretty links" are not set up.</li>
+  <li><b>Why the <code>X-Forwarded-Proto: https</code> header?</b> WooCommerce accepts key + secret only on HTTPS. Inside the cluster we use plain HTTP. The WordPress image trusts this header and acts as if the request was HTTPS. This is safe because WordPress is only reachable from the ingress controller and the woo-mcp-server pod (NetworkPolicy).</li>
+</ul>
+
+<h3>6.2 Files</h3>
+<table>
+<tr><th>File</th><th>What it does</th></tr>
+<tr><td><code>src/woo-api.js</code></td><td>One function <code>wooRequest(method, path, query, body)</code>. Builds the URL, adds Basic auth and the header, 15 s timeout, throws a clear error if the store says no.</td></tr>
+<tr><td><code>src/tools.js</code></td><td>Registers the tools with <code>server.registerTool(name, {description, inputSchema}, handler)</code>. Each handler calls <code>wooRequest</code> and returns a short JSON text.</td></tr>
+<tr><td><code>src/index.js</code></td><td>Express app. <code>GET /healthz</code> for probes. <code>POST /mcp</code>: check the bearer token, make a new <code>McpServer</code> + <code>StreamableHTTPServerTransport</code> (stateless), handle the request.</td></tr>
+<tr><td><code>Dockerfile</code></td><td><code>node:24-alpine</code>, <code>npm ci --omit=dev</code>, runs as user 1000 (not root).</td></tr>
+</table>
+
+<h3>6.3 The tools</h3>
+<table>
+<tr><th>Tool</th><th>Inputs</th><th>What it calls</th></tr>
+<tr><td><code>list_products</code></td><td>search?, limit?</td><td>GET /wc/v3/products</td></tr>
+<tr><td><code>create_product</code></td><td>name, price, description?</td><td>POST /wc/v3/products (simple, published)</td></tr>
+<tr><td><code>list_orders</code></td><td>date? ("today" or YYYY-MM-DD), status?, limit?</td><td>GET /wc/v3/orders with after/before for that whole day</td></tr>
+<tr><td><code>get_order</code></td><td>id</td><td>GET /wc/v3/orders/{id}</td></tr>
+<tr><td><code>update_order_status</code></td><td>id, status (enum)</td><td>PUT /wc/v3/orders/{id}</td></tr>
+<tr><td><code>ping</code></td><td>none</td><td>No store call. Same name exists on the other servers, to show collision handling.</td></tr>
+</table>
+<p><b>"Today":</b> the server knows the store time zone (<code>STORE_TIMEZONE</code>, default Asia/Kolkata, also set in WordPress). It computes today's date in that zone and asks for orders between 00:00:00 and 23:59:59. So "what orders came in today" matches what the shop owner sees.</p>
+
+<h3>6.4 Stateless Streamable HTTP (the core code)</h3>
+<pre>app.post("/mcp", checkToken, async (req, res) => {
+  const server = new McpServer({ name: "woocommerce", version: "1.0.0" });
+  addTools(server);
+  const transport = new StreamableHTTPServerTransport({
+    sessionIdGenerator: undefined,  // stateless: no sessions
+    enableJsonResponse: true,       // plain JSON answers
+  });
+  res.on("close", () => { transport.close(); server.close(); });
+  await server.connect(transport);
+  await transport.handleRequest(req, res, req.body);
+});</pre>
+<p>Why stateless? Each request stands alone, so there is nothing to keep in memory, any pod can answer, and the code is short. GET and DELETE on <code>/mcp</code> answer 405 (they are only for sessions/streams).</p>
+
+<!-- ===================================================== -->
+<h2>7. Part 2: the two extra MCP servers</h2>
+<p>The task asks for at least three upstream servers. We wrote two small ones in the same style, because they are reliable, run inside the cluster (so we can kill their pods in the demo), and each has its own token.</p>
+<table>
+<tr><th>Server</th><th>Tools</th><th>Why it is useful in the demo</th></tr>
+<tr><td><code>notes-mcp-server</code></td><td>add_note, list_notes, delete_note, ping</td><td>Two-server prompt: "list today's orders and save a summary as a team note".</td></tr>
+<tr><td><code>utils-mcp-server</code></td><td>get_current_time, convert_currency, slow_task, ping</td><td>"Total of today's orders in EUR" (two servers). <code>slow_task</code> shows the gateway timeout.</td></tr>
+</table>
+<p>Notes are kept in memory (a list), so they are gone after a restart. That is fine for a demo server.</p>
+
+<div class="page-break"></div>
+<!-- ===================================================== -->
+<h2>8. Part 3: the gateway (file by file)</h2>
+<p>Folder: <code>gateway/src/</code>. It is two things at once: an <b>MCP client</b> to every upstream server, and an <b>MCP server</b> at <code>/mcp</code> for everyone else. It also serves the dashboard API.</p>
+<table>
+<tr><th>File</th><th>What it does</th></tr>
+<tr><td><code>config.js</code></td><td>All settings from environment variables: port, data folder, encryption key, first admin, timeouts (connect 5 s, call 20 s, health check every 15 s), LLM settings, seed servers.</td></tr>
+<tr><td><code>db.js</code></td><td>Opens <code>/data/gateway.db</code> and makes the tables: users, sessions, api_keys, servers, audit_log, settings. Adds the <code>admin_only_tools</code> column for older databases.</td></tr>
+<tr><td><code>security.js</code></td><td>Passwords: scrypt + salt. API keys and login tokens: random, stored as SHA-256 hash. Upstream credentials: AES-256-GCM encrypt/decrypt with the key from the Secret.</td></tr>
+<tr><td><code>upstreams.js</code></td><td>The MCP client side. Builds headers with the decrypted credential, opens a client (<code>StreamableHTTPClientTransport</code>) with a timeout, health-checks all servers in parallel, keeps status + tools in memory, calls tools, turns errors into clear text. Also the tool permission helpers.</td></tr>
+<tr><td><code>auth.js</code></td><td>Reads <code>Authorization: Bearer ...</code>. Login tokens (<code>sess_</code>) for the dashboard and the chat agent. API keys (<code>mcpgw_</code>) for MCP clients. Revoked key -> 401 and an audit row for that user.</td></tr>
+<tr><td><code>audit.js</code></td><td>Writes and reads audit rows: user, via (chat / mcp-client), server, tool, start time, duration, ok, error.</td></tr>
+<tr><td><code>mcp-endpoint.js</code></td><td>The gateway's MCP server (low-level <code>Server</code> class). <code>tools/list</code> returns renamed tools. <code>tools/call</code> splits the name, runs checks, calls the upstream, writes the audit row.</td></tr>
+<tr><td><code>url-check.js</code></td><td>SSRF protection for server URLs (see section 13).</td></tr>
+<tr><td><code>routes/login.js</code></td><td>POST /api/login, POST /api/logout, GET /api/me. Login tokens last 12 hours.</td></tr>
+<tr><td><code>routes/servers.js</code></td><td>List / add / edit / disable / remove / check servers. Admin-only for changes. Never returns secrets.</td></tr>
+<tr><td><code>routes/users.js</code></td><td>Admin invites a member (makes a one-time password), disables/enables users.</td></tr>
+<tr><td><code>routes/keys.js</code></td><td>Make (shown once), list (prefix only) and revoke API keys. Members: own keys. Admins: all.</td></tr>
+<tr><td><code>routes/audit.js</code></td><td>GET /api/audit (admin: all, member: own), GET /api/tools.</td></tr>
+<tr><td><code>chat.js</code>, <code>routes/chat.js</code></td><td>The chat agent (section 9).</td></tr>
+<tr><td><code>seed.js</code></td><td>First start only: create the first admin from the Secret, register WooCommerce, notes and utils servers (tokens encrypted). A flag makes sure removed servers do not come back.</td></tr>
+<tr><td><code>index.js</code></td><td>Wires it all together: <code>/healthz</code>, <code>/mcp</code>, <code>/api/*</code>, starts health checks.</td></tr>
+</table>
+
+<h3>8.1 Tool aggregation</h3>
+<p>Every 15 seconds the gateway connects to every enabled server <b>at the same time</b> (<code>Promise.allSettled</code>), lists its tools, and saves the result. <code>tools/list</code> on the gateway reads this saved list, so it is fast and never waits for a slow server.</p>
+
+<h3>8.2 Name collisions</h3>
+<div class="box"><b>Our scheme:</b> every tool becomes <code>&lt;server-name&gt;__&lt;tool-name&gt;</code>. Server names may only use a-z, 0-9 and "-" (no "_"), so splitting at the first "__" is always right. Example: <code>woocommerce__ping</code>, <code>notes__ping</code>, <code>utils__ping</code> are three different tools.</div>
+
+<h3>8.3 Timeouts and dead servers</h3>
+<ul>
+  <li>Connect + list: 5 seconds. Tool call: 20 seconds. After that the caller gets: <code>Call to 'utils' failed: Timeout: the server did not answer in time</code>.</li>
+  <li>A dead server becomes <b>Unreachable</b> with the reason (for example "Connection refused" or "Timeout"). Its tools leave the list. Other servers are not affected, because every check and every call is separate.</li>
+  <li>Disabled server: tools leave the list, and direct calls get "Server 'x' is disabled".</li>
+</ul>
+
+<h3>8.4 Tool permissions (stand-out item 2)</h3>
+<p>An admin clicks a tool in the dashboard to lock it ("admin only"). Locked tool names are stored per server. For members, locked tools are <b>hidden</b> from <code>tools/list</code> and <b>rejected</b> if called directly ("You are not allowed to use ..."), and the rejection is in the audit log.</p>
+
+<!-- ===================================================== -->
+<h2>9. Part 4: the chat agent and its tool loop</h2>
+<p>File: <code>gateway/src/chat.js</code>.</p>
+<pre>Browser --POST /api/chat (login token, messages)--> gateway
+  1. MCP client --> http://127.0.0.1:4000/mcp  with  Authorization: Bearer &lt;the user's login token&gt;
+     (so the agent IS the logged-in user: same tools, same permissions, same audit log)
+  2. tools = client.listTools()  --> turn into LLM "function" tools
+  3. LOOP (max 8 rounds):
+        answer = LLM(messages, tools)
+        if answer has no tool calls  -> return answer + list of tool calls
+        for each tool call:
+            result = client.callTool(name, args)   (goes through the gateway: checks + audit)
+            add result to messages as role "tool"
+  4. The UI shows the answer and, under it, every tool that was called (name, inputs, result).</pre>
+<ul>
+  <li><b>Why call our own /mcp instead of calling functions directly?</b> Then the agent follows exactly the same path as Claude Code: same auth, same permissions, same audit. Nothing talks to the upstream servers except the gateway.</li>
+  <li><b>LLM:</b> any OpenAI-style "chat completions" API. Default Groq (free). The key is in a Secret (<code>llm-secret</code>) and only the gateway pod has it.</li>
+  <li><b>Safety:</b> the system prompt says tool results are data, not orders. Each tool result sent to the model is cut to 8 KB. Max 8 rounds.</li>
+</ul>
+
+<!-- ===================================================== -->
+<h2>10. Part 5: the React dashboard</h2>
+<table>
+<tr><th>Page</th><th>Who</th><th>What</th></tr>
+<tr><td>Login</td><td>all</td><td>Email + password, gets a login token (stored in the browser).</td></tr>
+<tr><td>MCP Servers</td><td>all (changes: admin)</td><td>Status badge (Connected / Unreachable / Disabled), reason, last check, tools. Admin: add, edit (URL, credential), disable/enable, remove, click a tool to lock it. Refreshes every 5 s.</td></tr>
+<tr><td>Chat</td><td>all</td><td>Chat with the agent. Shows the tools called, with inputs and results.</td></tr>
+<tr><td>API Keys</td><td>all</td><td>Generate my key (shown once, with the ready Claude Code command and Cursor config), list, revoke.</td></tr>
+<tr><td>Members</td><td>admin</td><td>Invite (one-time password), issue a key for a user, disable/enable.</td></tr>
+<tr><td>Audit Log</td><td>all (member: own rows)</td><td>Time, user, via, server, tool, duration, success/failed + error.</td></tr>
+</table>
+<p>The dashboard only knows the gateway's <code>/api</code>. It never sees an upstream credential: the API returns only <code>hasCredential: true/false</code>.</p>
+
+<div class="page-break"></div>
+<!-- ===================================================== -->
+<h2>11. Part 6: Kubernetes and Helm (template by template)</h2>
+<p>Chart: <code>helm/team-mcp-gateway/</code>. Everything goes into one namespace, <code>mcp</code>.</p>
+<table>
+<tr><th>Template</th><th>Objects</th><th>Notes</th></tr>
+<tr><td><code>secrets.yaml</code></td><td>Secret <code>app-secrets</code></td><td>Random passwords/tokens made by Helm (<code>randAlphaNum</code>). On upgrade, <code>lookup</code> reads the old Secret and keeps the same values.</td></tr>
+<tr><td><code>mariadb.yaml</code></td><td>Service, StatefulSet + volumeClaimTemplate</td><td>User 999. Readiness: <code>healthcheck.sh --connect --innodb_initialized</code>. Liveness: TCP 3306.</td></tr>
+<tr><td><code>wordpress.yaml</code></td><td>PVC <code>wordpress-files</code>, Service, Deployment (Recreate)</td><td>User 33 (www-data). Safe sysctl <code>ip_unprivileged_port_start=0</code> lets it open port 80 without root. Readiness: /wp-login.php. Liveness: a static file.</td></tr>
+<tr><td><code>store-setup.yaml</code></td><td>ConfigMap (scripts), Job (hook)</td><td>post-install + post-upgrade. WP-CLI: install WordPress, WooCommerce, settings, Cash on delivery, REST key, demo products. Every step is safe to repeat.</td></tr>
+<tr><td><code>woo-mcp-server.yaml</code></td><td>Service (ClusterIP), Deployment</td><td>No Ingress. Probes on /healthz.</td></tr>
+<tr><td><code>notes-/utils-mcp-server.yaml</code></td><td>Service, Deployment</td><td>Same.</td></tr>
+<tr><td><code>gateway.yaml</code></td><td>PVC <code>gateway-data</code>, Service, Deployment (Recreate)</td><td>Gets the encryption key, first admin password, upstream tokens and the optional LLM key from Secrets.</td></tr>
+<tr><td><code>dashboard.yaml</code></td><td>Service, Deployment</td><td>nginx on 8080, writable /tmp only.</td></tr>
+<tr><td><code>ingress.yaml</code></td><td>2 Ingress</td><td>store host -> WordPress. dashboard host: /api and /mcp -> gateway, / -> dashboard. Optional TLS with cert-manager.</td></tr>
+<tr><td><code>networkpolicies.yaml</code></td><td>7 NetworkPolicies</td><td>Deny all incoming, then allow only what is needed (section 13).</td></tr>
+</table>
+
+<h3>11.1 Probes, requests and limits</h3>
+<p>Every workload has a readiness and a liveness probe, and CPU/memory requests and limits (set in <code>values.yaml</code>). Example: WordPress requests 100m CPU / 256Mi and may use up to 1 CPU / 768Mi. The small MCP servers request 20m / 48Mi.</p>
+
+<h3>11.2 Storage</h3>
+<p>Three volumes: MariaDB data, WordPress files (plugins, uploads), gateway SQLite file. They survive pod restarts and Helm upgrades. The storage class is a value: Kind's default locally, <code>local-path</code> on k3s.</p>
+
+<h3>11.3 Local domains</h3>
+<p>We use <code>localtest.me</code>: public DNS where every name under it points to 127.0.0.1. Kind maps ports 80/443 of the laptop to the ingress controller. So <code>http://store.localtest.me</code> and <code>http://dashboard.localtest.me</code> work with no hosts file changes.</p>
+
+<!-- ===================================================== -->
+<h2>12. How one tool call travels, step by step</h2>
+<p>Example: user B in Claude Code asks "what orders came in today?"</p>
+<ol>
+  <li>Claude Code sends <code>POST http://dashboard.localtest.me/mcp</code> with <code>Authorization: Bearer mcpgw_...</code> and the JSON-RPC message <code>tools/call</code>, name <code>woocommerce__list_orders</code>, arguments <code>{"date":"today"}</code>.</li>
+  <li>The Ingress sends <code>/mcp</code> to the gateway Service (allowed by NetworkPolicy: from the ingress namespace).</li>
+  <li><code>requireMcpAuth</code> hashes the key, finds it, checks it is not revoked and the user is active. The request now knows "this is user B".</li>
+  <li>The gateway's MCP server splits the name: server <code>woocommerce</code>, tool <code>list_orders</code>. Checks: server exists, enabled, tool exists, B's role may use it.</li>
+  <li><code>callUpstreamTool</code> decrypts the WooCommerce MCP token, opens an MCP client to <code>http://woo-mcp-server:3000/mcp</code> (allowed: only from the gateway), runs <code>initialize</code> and <code>tools/call</code> with a 20 s timeout.</li>
+  <li>The WooCommerce MCP server checks the token, computes today's date in the store time zone, and calls <code>GET http://wordpress/?rest_route=/wc/v3/orders&amp;after=...&amp;before=...</code> with the consumer key/secret (allowed: woo-mcp -> wordpress).</li>
+  <li>WordPress reads MariaDB (allowed: wordpress -> mariadb) and returns the orders.</li>
+  <li>The answer goes back the same way. The gateway writes the audit row (user B, mcp-client, woocommerce, list_orders, time, duration, ok) and returns the result to Claude Code.</li>
+</ol>
+
+<div class="page-break"></div>
+<!-- ===================================================== -->
+<h2>13. Security: keys, secrets, isolation</h2>
+<h3>13.1 Where secrets live</h3>
+<table>
+<tr><th>Secret</th><th>Stored as</th></tr>
+<tr><td>DB passwords, WP admin password, WooCommerce key/secret, MCP tokens, encryption key, first admin password</td><td>Kubernetes Secret <code>app-secrets</code> (random, made at install)</td></tr>
+<tr><td>LLM API key</td><td>Kubernetes Secret <code>llm-secret</code> (you create it)</td></tr>
+<tr><td>Upstream credentials inside the gateway</td><td>AES-256-GCM encrypted in SQLite</td></tr>
+<tr><td>User API keys and login tokens</td><td>SHA-256 hash only (key shown once)</td></tr>
+<tr><td>Dashboard passwords</td><td>scrypt hash with salt</td></tr>
+</table>
+<p>No password is in Git or in a values file. The browser and MCP clients never get an upstream credential.</p>
+
+<h3>13.2 What a member can and cannot do</h3>
+<ul>
+  <li><b>Can:</b> log in, generate and revoke their own API keys, use all allowed tools (dashboard chat or external client), see their own audit rows, see the server list (without secrets).</li>
+  <li><b>Cannot:</b> add/edit/remove servers, invite or disable users, see other people's keys or audit rows, use locked (admin-only) tools, see any upstream credential, reach any MCP server directly.</li>
+</ul>
+
+<h3>13.3 Public vs internal (and how it is enforced)</h3>
+<ul>
+  <li><b>Public:</b> only the two Ingress hosts (store, dashboard with /api and /mcp).</li>
+  <li><b>Internal only:</b> MariaDB, the three MCP servers (ClusterIP, no Ingress).</li>
+  <li><b>NetworkPolicies</b> (enforced by the cluster network): deny all incoming; allow ingress controller -> WordPress/dashboard/gateway; WordPress + setup Job -> MariaDB; woo-mcp -> WordPress; <b>gateway only</b> -> MCP servers. Egress: woo-mcp may only reach WordPress + DNS; notes/utils only DNS.</li>
+  <li><b>Tested:</b> a random pod in the namespace could not connect to <code>woo-mcp-server:3000</code>; the gateway could.</li>
+  <li><b>Containers:</b> all non-root. Our images also: read-only root filesystem, all Linux capabilities dropped, no privilege escalation.</li>
+</ul>
+
+<h3>13.4 If an admin adds a malicious MCP server</h3>
+<ul>
+  <li>Its tools are namespaced (<code>evil__...</code>), so it cannot replace <code>woocommerce__*</code> tools.</li>
+  <li>It only gets its own credential, never user keys (we do not pass client tokens through).</li>
+  <li>Descriptions are labeled with the server name and cut to 1000 characters. The chat agent is told tool results are data. (Prompt injection is still a real risk; models can be fooled.)</li>
+  <li>Timeouts stop it from hanging the gateway. The SSRF check stops URLs that point to localhost or cloud metadata (169.254.169.254).</li>
+  <li>The admin can disable or remove it in one click, and the audit log shows every call it got.</li>
+</ul>
+<p>Full details: <code>docs/threat-model.md</code>.</p>
+
+<!-- ===================================================== -->
+<h2>14. Problems we hit and how we fixed them</h2>
+<table>
+<tr><th>Problem</th><th>Why it happened</th><th>Fix</th></tr>
+<tr><td><code>kind load docker-image</code> failed ("content digest not found")</td><td>Docker Desktop's multi-platform image store; Kind tries to import all platforms.</td><td><code>scripts/build-images.sh</code> saves only <code>linux/amd64</code> and imports with <code>ctr</code> into the Kind node.</td></tr>
+<tr><td>Pods stuck in <code>CreateContainerConfigError</code></td><td><code>runAsNonRoot: true</code> but the image said <code>USER node</code> (a name). Kubernetes needs a number to check.</td><td><code>USER 1000</code> in the Dockerfiles (same user, as a number).</td></tr>
+<tr><td>Setup Job failed: "WooCommerce needs WordPress 7.0"</td><td>The newest WooCommerce (11.2) needs WordPress 7; we started with the 6.8 image.</td><td>Use <code>wordpress:7.0-php8.3-apache</code>; clean reinstall.</td></tr>
+<tr><td>WordPress as non-root cannot open port 80</td><td>Ports below 1024 need root.</td><td>Safe sysctl <code>net.ipv4.ip_unprivileged_port_start=0</code> on the pod. (Editing Apache's config was not possible as non-root.)</td></tr>
+<tr><td>Product links showed <code>https://</code> locally</td><td>Our <code>X-Forwarded-Proto: https</code> header makes WordPress build https links.</td><td>The MCP server rewrites links to <code>STORE_PUBLIC_URL</code>.</td></tr>
+</table>
+
+<!-- ===================================================== -->
+<h2>15. Testing: what we checked and what we saw</h2>
+<p>We used <code>scripts/smoke-test.sh</code> (curl through the real Ingress) plus some manual checks.</p>
+<table>
+<tr><th>Check</th><th>Result</th></tr>
+<tr><td>Storefront and dashboard through Ingress</td><td>HTTP 200 for both</td></tr>
+<tr><td>Checkout with Cash on delivery (Store API, same as the browser checkout)</td><td>Order #14 created, status "processing"</td></tr>
+<tr><td>All three servers registered and Connected</td><td>woocommerce (6 tools), notes (4), utils (4)</td></tr>
+<tr><td>User B (member, own key) lists tools</td><td>14 tools, all with server prefix</td></tr>
+<tr><td>User B: today's orders</td><td>Returned order #14 with items, total, customer</td></tr>
+<tr><td>Three tools named <code>ping</code></td><td>Each routed to the right server</td></tr>
+<tr><td>Slow tool (25 s)</td><td>Stopped at 20 s with "Timeout: the server did not answer in time"; audit row failed, 20008 ms</td></tr>
+<tr><td>Revoke B's key</td><td>Next call: 401 "API key was revoked"; audit row under user B</td></tr>
+<tr><td>Disable notes server</td><td>0 notes tools left; enable again -> Connected</td></tr>
+<tr><td>Kill an upstream (scale notes to 0)</td><td>notes Unreachable with reason; WooCommerce and utils still work</td></tr>
+<tr><td>Tool permissions</td><td>Locked create_product hidden from member and rejected if called; admin sees all 6</td></tr>
+<tr><td>NetworkPolicy</td><td>Random pod cannot reach woo-mcp-server; gateway can</td></tr>
+<tr><td>Helm upgrade and rollback</td><td>Rollback to revision 1 and upgrade again worked; same Secrets and data</td></tr>
+<tr><td>Chat agent</td><td>Needs your LLM key in the <code>llm-secret</code> Secret. Without a key it answers "no LLM API key". (Run the chat test after adding the key.)</td></tr>
+</table>
+
+<div class="page-break"></div>
+<!-- ===================================================== -->
+<h2>16. How to run it</h2>
+<h3>16.1 Local (Kind)</h3>
+<pre>kind create cluster --config scripts/kind-config.yaml
+kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.12.1/deploy/static/provider/kind/deploy.yaml
+sh scripts/build-images.sh
+
+kubectl create namespace mcp
+kubectl -n mcp create secret generic llm-secret --from-literal=LLM_API_KEY=&lt;groq-key&gt;
+
+helm install tmg helm/team-mcp-gateway -n mcp --create-namespace \
+  -f helm/team-mcp-gateway/values-local.yaml --wait --timeout 15m
+
+# passwords
+kubectl -n mcp get secret app-secrets -o jsonpath="{.data.GATEWAY_ADMIN_PASSWORD}" | base64 -d
+kubectl -n mcp get secret app-secrets -o jsonpath="{.data.WP_ADMIN_PASSWORD}" | base64 -d
+
+bash scripts/smoke-test.sh</pre>
+<p>Open <code>http://store.localtest.me</code> and <code>http://dashboard.localtest.me</code>.</p>
+
+<h3>16.2 Connect Claude Code</h3>
+<pre>claude mcp add --transport http team-gateway http://dashboard.localtest.me/mcp \
+  --header "Authorization: Bearer &lt;your-api-key&gt;"</pre>
+
+<h3>16.3 Production (VPS with k3s)</h3>
+<p>Same chart, <code>values-prod.yaml</code>. Changes: image registry (ghcr.io), Traefik instead of nginx, real domains, TLS with cert-manager, <code>local-path</code> storage, bigger volumes, ingress controller namespace <code>kube-system</code>. Steps: install k3s, cert-manager, ClusterIssuer, push a git tag to build images, create <code>llm-secret</code>, <code>helm install ... -f values-prod.yaml</code>. Full steps: <code>docs/production-vps.md</code>.</p>
+
+<h3>16.4 Upgrade and rollback</h3>
+<pre>helm upgrade tmg helm/team-mcp-gateway -n mcp -f helm/team-mcp-gateway/values-prod.yaml --set images.tag=1.0.1 --wait
+helm -n mcp history tmg
+helm -n mcp rollback tmg &lt;revision&gt; --wait</pre>
+<div class="box warn">Helm rolls back Kubernetes objects, <b>not data</b>. Take a database backup before risky upgrades (commands in <code>docs/production-vps.md</code>).</div>
+
+<!-- ===================================================== -->
+<h2>17. Demo video plan (about 12-15 minutes)</h2>
+<ol>
+  <li><b>Intro (1 min):</b> the 4 layers, the architecture picture.</li>
+  <li><b>Kubernetes tour (2 min):</b> <code>kubectl -n mcp get pods,svc,pvc,ingress,networkpolicy,secret</code>. Show probes and limits in <code>values.yaml</code>. Point out: only 2 Ingress hosts, MCP servers are ClusterIP.</li>
+  <li><b>Store (1 min):</b> buy a product with Cash on delivery; show it in WooCommerce -> Orders.</li>
+  <li><b>Admin dashboard (1 min):</b> servers with status and tools; invite user A and user B.</li>
+  <li><b>User A chat (2 min):</b> "Create a product called Demo Lamp with price 30" -> show it in the store. Buy it by hand. "What orders came in today?" Show the tool calls under the answer.</li>
+  <li><b>User B external client (2 min):</b> make a key, <code>claude mcp add ...</code>, list tools, ask the orders question, then "List today's orders and save a summary as a team note" (two servers).</li>
+  <li><b>Control (2 min):</b> revoke B's key -> rejected. Disable notes -> tools gone (chat + reconnect the client). <code>kubectl -n mcp delete pod -l app=utils-mcp-server</code> or scale to 0 -> Unreachable, WooCommerce still works.</li>
+  <li><b>Audit log (30 s):</b> every call with the right user.</li>
+  <li><b>MCP internals + security (2 min):</b> code walk of <code>upstreams.js</code> and <code>mcp-endpoint.js</code>; name scheme, timeouts; hashing and encryption; malicious server answer.</li>
+  <li><b>Production story (1 min):</b> diff of values-local vs values-prod; upgrade and rollback.</li>
+</ol>
+
+<!-- ===================================================== -->
+<h2>18. Interview questions and simple answers</h2>
+<p><b>Q: Why is the gateway both an MCP client and an MCP server?</b><br>
+A: To the outside it is one MCP server (one URL, one key). To the upstreams it is a normal MCP client. It joins the tool lists and routes each call.</p>
+<p><b>Q: How do you handle two servers with the same tool name?</b><br>
+A: Every tool gets the server name in front: <code>server__tool</code>. Server names cannot contain "_", so the split is never wrong. We show it with three <code>ping</code> tools.</p>
+<p><b>Q: What happens if an upstream is slow or dead?</b><br>
+A: Listing uses a cache that is refreshed in the background in parallel, so it never waits. Calls have a 20 s timeout and return a clear error. A dead server is marked Unreachable with the reason; others keep working.</p>
+<p><b>Q: How are API keys stored?</b><br>
+A: Only the SHA-256 hash and a short prefix. The full key is shown once. On each request we hash the given key and look it up. Revoked keys fail at once.</p>
+<p><b>Q: Why SHA-256 for keys but scrypt for passwords?</b><br>
+A: Keys are 48 random hex characters, so they cannot be guessed; a fast hash is fine. Passwords are chosen by people and can be guessed, so we use a slow hash with salt.</p>
+<p><b>Q: Why encrypt upstream credentials instead of hashing them?</b><br>
+A: We must send them to the upstream, so we need the real value back. Hashing is one-way; encryption is two-way. The key is in a Kubernetes Secret, not in the database.</p>
+<p><b>Q: Why don't you pass the client's token to the upstream?</b><br>
+A: The upstream could steal and replay it against our gateway (confused deputy). Tokens should only be accepted by the service they were made for. The gateway checks the user, then uses the upstream's own credential.</p>
+<p><b>Q: How does the chat agent act as the logged-in user?</b><br>
+A: It connects to the gateway's own <code>/mcp</code> with the user's login token. So it gets that user's tools and permissions, and every call is in the audit log under that user with via = chat.</p>
+<p><b>Q: Why stateless Streamable HTTP?</b><br>
+A: Simple code, no session memory, any pod can answer. The cost: no server push, so clients must re-list tools to see a change.</p>
+<p><b>Q: Where is isolation enforced?</b><br>
+A: Three places: (1) no Ingress for MCP servers and the DB (ClusterIP only); (2) NetworkPolicies, deny by default, MCP servers accept only the gateway; (3) a bearer token on each MCP server, known only to the gateway.</p>
+<p><b>Q: How do secrets survive a Helm upgrade?</b><br>
+A: The Secret template uses <code>lookup</code> to read the existing Secret. If a value is there, it is reused; if not, a new random value is made.</p>
+<p><b>Q: What would break with two gateway replicas?</b><br>
+A: The MCP endpoint is stateless and would be fine. SQLite on a ReadWriteOnce volume is the problem. We would move to Postgres. The health cache is per pod, which is fine.</p>
+<p><b>Q: How does the WooCommerce MCP server authenticate to the store?</b><br>
+A: A WooCommerce REST API key (consumer key + secret). The setup Job writes it into WooCommerce's key table (hashed, like WooCommerce does), using values from the Secret. The MCP server gets the same values as env vars.</p>
+<p><b>Q: Is the setup Job safe to run twice?</b><br>
+A: Yes. It checks "is WordPress installed?", "is the plugin installed?", "are there products?", and it replaces the API key row instead of adding a second one.</p>
+
+<!-- ===================================================== -->
+<h2>19. Limits and next steps</h2>
+<ul>
+  <li><b>One gateway replica</b> (SQLite). Next: Postgres + 2 replicas + rate limits per key.</li>
+  <li><b>New upstream connection per call.</b> Next: a small connection pool.</li>
+  <li><b>No push of tool list changes</b> to clients (stateless). Clients must reconnect to see changes.</li>
+  <li><b>Prompt injection</b> from untrusted servers is reduced, not solved. Next: "pending review" for new servers, per-server tool allow-lists.</li>
+  <li><b>SSRF check</b> does not cover DNS rebinding.</li>
+  <li><b>Invites</b> are one-time passwords, not email links. <b>OAuth</b> on the gateway is not done.</li>
+  <li><b>Bonus multi-store provisioning</b> was not attempted; we focused on a working core.</li>
+</ul>
+
+<p class="small" style="margin-top:30px">End of guide.</p>
+</body>
+</html>
