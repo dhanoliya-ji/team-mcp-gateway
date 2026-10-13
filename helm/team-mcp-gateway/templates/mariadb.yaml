@@ -1,0 +1,75 @@
+# mariadb.yaml
+# The store's database. A StatefulSet keeps a stable name and its own
+# persistent volume, so data survives pod restarts.
+apiVersion: v1
+kind: Service
+metadata:
+  name: mariadb
+  labels: { app: mariadb }
+spec:
+  selector: { app: mariadb }
+  ports:
+    - port: 3306
+      targetPort: 3306
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mariadb
+  labels: { app: mariadb }
+spec:
+  serviceName: mariadb
+  replicas: 1
+  selector:
+    matchLabels: { app: mariadb }
+  template:
+    metadata:
+      labels: { app: mariadb }
+    spec:
+      # Run as the "mysql" user (999), not root.
+      securityContext:
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+      containers:
+        - name: mariadb
+          image: {{ .Values.store.mariadb.image }}
+          ports:
+            - containerPort: 3306
+          env:
+            - name: MARIADB_DATABASE
+              value: wordpress
+            - name: MARIADB_USER
+              value: wordpress
+            - name: MARIADB_PASSWORD
+              valueFrom: { secretKeyRef: { name: app-secrets, key: WP_DB_PASSWORD } }
+            - name: MARIADB_ROOT_PASSWORD
+              valueFrom: { secretKeyRef: { name: app-secrets, key: MARIADB_ROOT_PASSWORD } }
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/mysql
+          # Ready = the database accepts connections.
+          readinessProbe:
+            exec:
+              command: ["healthcheck.sh", "--connect", "--innodb_initialized"]
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          # Alive = the port is open.
+          livenessProbe:
+            tcpSocket: { port: 3306 }
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources:
+            {{- toYaml .Values.store.mariadb.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+  # Each pod gets its own persistent volume.
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- include "tmg.storageClass" . | nindent 8 }}
+        resources:
+          requests:
+            storage: {{ .Values.store.mariadb.storage }}
