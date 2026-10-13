@@ -16,7 +16,7 @@ done
 for IMAGE in \
   team-mcp/woo-mcp-server:$TAG team-mcp/notes-mcp-server:$TAG team-mcp/utils-mcp-server:$TAG \
   team-mcp/gateway:$TAG team-mcp/dashboard:$TAG \
-  wordpress:6.8-php8.3-apache wordpress:cli-php8.3 mariadb:11.4
+  wordpress:7.0-php8.3-apache wordpress:cli-php8.3 mariadb:11.4
 do
   echo "== Loading $IMAGE into Kind"
   docker image inspect $IMAGE > /dev/null 2>&1 || docker pull -q $IMAGE
