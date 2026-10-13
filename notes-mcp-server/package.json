@@ -1,0 +1,15 @@
+{
+  "name": "notes-mcp-server",
+  "version": "1.0.0",
+  "description": "A tiny MCP server that keeps team notes.",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "express": "^5.3.0",
+    "zod": "^3.25.0"
+  }
+}
