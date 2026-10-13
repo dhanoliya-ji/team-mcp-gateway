@@ -1,0 +1,99 @@
+# gateway.yaml
+# The gateway backend: MCP endpoint (/mcp), dashboard API (/api) and chat agent.
+# It keeps its SQLite database (users, keys, servers, audit log) on a volume.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: gateway-data
+spec:
+  accessModes: ["ReadWriteOnce"]
+  {{- include "tmg.storageClass" . | nindent 2 }}
+  resources:
+    requests:
+      storage: {{ .Values.gateway.storage }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gateway
+  labels: { app: gateway }
+spec:
+  selector: { app: gateway }
+  ports:
+    - port: 4000
+      targetPort: 4000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway
+  labels: { app: gateway }
+spec:
+  replicas: 1
+  strategy: { type: Recreate }   # one pod at a time uses the database volume
+  selector:
+    matchLabels: { app: gateway }
+  template:
+    metadata:
+      labels: { app: gateway }
+    spec:
+      securityContext:
+        fsGroup: 1000   # the "node" user can write to the volume
+      containers:
+        - name: gateway
+          image: {{ include "tmg.image" (list . "gateway") }}
+          imagePullPolicy: {{ .Values.images.pullPolicy }}
+          ports:
+            - containerPort: 4000
+          env:
+            - name: ADMIN_EMAIL
+              value: {{ .Values.gateway.adminEmail | quote }}
+            - name: ADMIN_PASSWORD
+              valueFrom: { secretKeyRef: { name: app-secrets, key: GATEWAY_ADMIN_PASSWORD } }
+            - name: ENCRYPTION_KEY
+              valueFrom: { secretKeyRef: { name: app-secrets, key: GATEWAY_ENCRYPTION_KEY } }
+            - name: CALL_TIMEOUT_MS
+              value: {{ .Values.gateway.callTimeoutMs | quote }}
+            # Tokens for the first 3 servers. The gateway encrypts them into its DB.
+            - name: WOO_MCP_TOKEN
+              valueFrom: { secretKeyRef: { name: app-secrets, key: WOO_MCP_TOKEN } }
+            - name: NOTES_MCP_TOKEN
+              valueFrom: { secretKeyRef: { name: app-secrets, key: NOTES_MCP_TOKEN } }
+            - name: UTILS_MCP_TOKEN
+              valueFrom: { secretKeyRef: { name: app-secrets, key: UTILS_MCP_TOKEN } }
+            # The first servers to register (WooCommerce is first).
+            - name: SEED_SERVERS
+              value: |
+                [
+                  { "name": "woocommerce", "url": "http://woo-mcp-server:3000/mcp", "tokenEnv": "WOO_MCP_TOKEN" },
+                  { "name": "notes", "url": "http://notes-mcp-server:3000/mcp", "tokenEnv": "NOTES_MCP_TOKEN" },
+                  { "name": "utils", "url": "http://utils-mcp-server:3000/mcp", "tokenEnv": "UTILS_MCP_TOKEN" }
+                ]
+            # Chat agent LLM. The key comes from a Secret you create (optional).
+            - name: LLM_BASE_URL
+              value: {{ .Values.llm.baseUrl | quote }}
+            - name: LLM_MODEL
+              value: {{ .Values.llm.model | quote }}
+            - name: LLM_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.llm.existingSecret }}
+                  key: LLM_API_KEY
+                  optional: true   # without it, the chat says "no LLM key"
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          readinessProbe:
+            httpGet: { path: /healthz, port: 4000 }
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /healthz, port: 4000 }
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            {{- toYaml .Values.gateway.resources | nindent 12 }}
+          {{- include "tmg.containerSecurity" . | nindent 10 }}
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: gateway-data
