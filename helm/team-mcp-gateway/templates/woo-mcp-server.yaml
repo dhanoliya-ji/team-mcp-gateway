@@ -1,0 +1,56 @@
+# woo-mcp-server.yaml
+# Our own WooCommerce MCP server.
+# It has a ClusterIP Service only (no Ingress), so it is NOT reachable from
+# outside the cluster. The NetworkPolicy also lets ONLY the gateway call it.
+apiVersion: v1
+kind: Service
+metadata:
+  name: woo-mcp-server
+  labels: { app: woo-mcp-server }
+spec:
+  type: ClusterIP
+  selector: { app: woo-mcp-server }
+  ports:
+    - port: 3000
+      targetPort: 3000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: woo-mcp-server
+  labels: { app: woo-mcp-server }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: woo-mcp-server }
+  template:
+    metadata:
+      labels: { app: woo-mcp-server }
+    spec:
+      containers:
+        - name: woo-mcp-server
+          image: {{ include "tmg.image" (list . "woo-mcp-server") }}
+          imagePullPolicy: {{ .Values.images.pullPolicy }}
+          ports:
+            - containerPort: 3000
+          env:
+            - name: WOO_URL
+              value: http://wordpress
+            - name: STORE_TIMEZONE
+              value: {{ .Values.store.timezone | quote }}
+            - name: WOO_CONSUMER_KEY
+              valueFrom: { secretKeyRef: { name: app-secrets, key: WOO_CONSUMER_KEY } }
+            - name: WOO_CONSUMER_SECRET
+              valueFrom: { secretKeyRef: { name: app-secrets, key: WOO_CONSUMER_SECRET } }
+            - name: MCP_TOKEN
+              valueFrom: { secretKeyRef: { name: app-secrets, key: WOO_MCP_TOKEN } }
+          readinessProbe:
+            httpGet: { path: /healthz, port: 3000 }
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /healthz, port: 3000 }
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            {{- toYaml .Values.wooMcp.resources | nindent 12 }}
+          {{- include "tmg.containerSecurity" . | nindent 10 }}
