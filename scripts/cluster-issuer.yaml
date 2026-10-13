@@ -1,6 +1,6 @@
 # cluster-issuer.yaml (production only)
 # Tells cert-manager to get free TLS certificates from Let's Encrypt.
-# Change the email first. Apply with:  kubectl apply -f scripts/cluster-issuer.yaml
+# (Optional) add "email: you@example.com" under acme to get expiry mails. Apply with:  kubectl apply -f scripts/cluster-issuer.yaml
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
 metadata:
@@ -8,7 +8,6 @@ metadata:
 spec:
   acme:
     server: https://acme-v02.api.letsencrypt.org/directory
-    email: you@example.com
     privateKeySecretRef:
       name: letsencrypt-account-key
     solvers:
