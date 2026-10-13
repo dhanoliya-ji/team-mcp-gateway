@@ -11,8 +11,9 @@ RUN npm ci --omit=dev
 # Then copy our code
 COPY src ./src
 
-# Run as the normal "node" user, not as root (safer)
-USER node
+# Run as the normal "node" user (id 1000), not as root.
+# We use the number, so Kubernetes can check it is not root (runAsNonRoot).
+USER 1000
 
 EXPOSE 3000
 CMD ["node", "src/index.js"]

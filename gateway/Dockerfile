@@ -14,8 +14,9 @@ COPY src ./src
 ENV DATA_DIR=/data
 RUN mkdir -p /data && chown node:node /data
 
-# Run as the normal "node" user, not as root
-USER node
+# Run as the normal "node" user (id 1000), not as root.
+# We use the number, so Kubernetes can check it is not root (runAsNonRoot).
+USER 1000
 
 EXPOSE 4000
 CMD ["node", "--disable-warning=ExperimentalWarning", "src/index.js"]
