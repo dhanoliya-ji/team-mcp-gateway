@@ -1,0 +1,64 @@
+# ingress.yaml
+# The only two public doors into the cluster:
+#   1. the store       -> WordPress
+#   2. the dashboard   -> /api and /mcp go to the gateway, everything else to the React app
+# The MCP servers and the database have NO Ingress, so they stay internal.
+{{- $tls := .Values.ingress.tls }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: store
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "20m"
+    {{- if .Values.ingress.clusterIssuer }}
+    cert-manager.io/cluster-issuer: {{ .Values.ingress.clusterIssuer }}
+    {{- end }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- if $tls }}
+  tls:
+    - hosts: [{{ .Values.ingress.storeHost | quote }}]
+      secretName: store-tls
+  {{- end }}
+  rules:
+    - host: {{ .Values.ingress.storeHost | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service: { name: wordpress, port: { number: 80 } }
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: dashboard
+  annotations:
+    # The chat agent can take a while (many tool calls), so wait longer.
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "180"
+    {{- if .Values.ingress.clusterIssuer }}
+    cert-manager.io/cluster-issuer: {{ .Values.ingress.clusterIssuer }}
+    {{- end }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- if $tls }}
+  tls:
+    - hosts: [{{ .Values.ingress.dashboardHost | quote }}]
+      secretName: dashboard-tls
+  {{- end }}
+  rules:
+    - host: {{ .Values.ingress.dashboardHost | quote }}
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service: { name: gateway, port: { number: 4000 } }
+          - path: /mcp
+            pathType: Prefix
+            backend:
+              service: { name: gateway, port: { number: 4000 } }
+          - path: /
+            pathType: Prefix
+            backend:
+              service: { name: dashboard, port: { number: 80 } }
