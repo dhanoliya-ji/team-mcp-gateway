@@ -1,0 +1,17 @@
+# Node packages (we never commit these, npm installs them)
+node_modules/
+
+# Build output
+dist/
+
+# Local data and secrets (never commit secrets!)
+*.db
+*.sqlite
+.env
+.env.*
+secrets-local.yaml
+
+# Editor and OS files
+.vscode/
+.DS_Store
+Thumbs.db
