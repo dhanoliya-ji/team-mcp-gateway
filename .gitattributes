@@ -1,0 +1,2 @@
+# Always use Linux line endings (needed for shell scripts in containers)
+* text=auto eol=lf
