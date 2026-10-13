@@ -1,0 +1,119 @@
+/* style.css - simple, clean styles for the dashboard */
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: system-ui, sans-serif;
+  background: #f4f5f7;
+  color: #1f2328;
+}
+
+button {
+  background: #2f6feb;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  padding: 7px 12px;
+  cursor: pointer;
+  font-size: 14px;
+}
+button:hover { background: #2458c4; }
+button.gray { background: #6b7280; }
+button.red { background: #d1242f; }
+button:disabled { opacity: 0.5; cursor: default; }
+
+input, select, textarea {
+  padding: 7px 9px;
+  border: 1px solid #c9ced6;
+  border-radius: 6px;
+  font-size: 14px;
+  font-family: inherit;
+}
+
+.center { text-align: center; margin-top: 80px; }
+.error { color: #d1242f; }
+.muted { color: #6b7280; font-size: 13px; }
+
+.card {
+  background: white;
+  border: 1px solid #e1e4e8;
+  border-radius: 10px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+/* Login box */
+.login {
+  max-width: 340px;
+  margin: 100px auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* Left menu + right content */
+.layout { display: flex; min-height: 100vh; }
+
+.menu {
+  width: 210px;
+  background: #1f2328;
+  color: white;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.menu button { background: transparent; text-align: left; }
+.menu button.active, .menu button:hover { background: #3a4049; }
+.menu .me { margin-top: auto; font-size: 13px; display: flex; flex-direction: column; gap: 6px; }
+
+.content { flex: 1; padding: 24px; max-width: 1100px; }
+
+/* Rows of inputs */
+.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 8px 0; }
+
+/* Tables */
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid #eceef1; vertical-align: top; }
+th { color: #57606a; font-weight: 600; }
+
+/* Small colored labels */
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 99px;
+  font-size: 12px;
+  background: #e8eaed;
+  color: #1f2328;
+}
+.badge.Connected, .badge.ok { background: #d2f4dc; color: #116329; }
+.badge.Unreachable, .badge.fail { background: #ffdcd7; color: #a40e26; }
+.badge.Disabled { background: #e8eaed; color: #57606a; }
+
+/* Show a secret one time */
+.secret {
+  background: #fff8c5;
+  border: 1px solid #e3c96b;
+  padding: 10px;
+  border-radius: 6px;
+  word-break: break-all;
+  font-family: monospace;
+}
+
+pre {
+  background: #f6f8fa;
+  padding: 8px;
+  border-radius: 6px;
+  overflow-x: auto;
+  font-size: 12px;
+  max-height: 240px;
+}
+
+/* Chat */
+.chat-box { display: flex; flex-direction: column; gap: 10px; }
+.msg { padding: 10px 12px; border-radius: 10px; max-width: 85%; white-space: pre-wrap; }
+.msg.user { background: #2f6feb; color: white; align-self: flex-end; }
+.msg.assistant { background: white; border: 1px solid #e1e4e8; align-self: flex-start; }
+.tool-call { font-size: 12px; margin-top: 6px; }
+.tool-call summary { cursor: pointer; }
