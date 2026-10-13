@@ -1,0 +1,10 @@
+Team MCP Gateway is installed!
+
+Store:       {{ include "tmg.storeUrl" . }}
+Store admin: {{ include "tmg.storeUrl" . }}/wp-admin   (user: {{ .Values.store.adminUser }})
+Dashboard:   {{ if .Values.ingress.tls }}https{{ else }}http{{ end }}://{{ .Values.ingress.dashboardHost }}   (user: {{ .Values.gateway.adminEmail }})
+MCP URL:     {{ if .Values.ingress.tls }}https{{ else }}http{{ end }}://{{ .Values.ingress.dashboardHost }}/mcp
+
+Get the passwords (they were made at install time):
+  kubectl -n {{ .Release.Namespace }} get secret app-secrets -o jsonpath="{.data.GATEWAY_ADMIN_PASSWORD}" | base64 -d; echo
+  kubectl -n {{ .Release.Namespace }} get secret app-secrets -o jsonpath="{.data.WP_ADMIN_PASSWORD}" | base64 -d; echo

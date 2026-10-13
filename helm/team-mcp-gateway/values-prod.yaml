@@ -1,0 +1,32 @@
+# values-prod.yaml - for a VPS with k3s.
+# Same chart, only these settings change.
+#
+# Before install:
+#   1. Point DNS (A records) for both hosts to the VPS IP.
+#   2. Push images to a registry (GitHub Container Registry here).
+#   3. (TLS) Install cert-manager and a ClusterIssuer named "letsencrypt".
+images:
+  registry: ghcr.io/dhanoliya-ji/team-mcp-gateway
+  tag: "1.0.0"
+  pullPolicy: IfNotPresent
+
+storageClass: local-path     # k3s comes with the "local-path" storage class
+
+ingress:
+  className: traefik         # k3s comes with Traefik as the ingress controller
+  storeHost: store.example.com
+  dashboardHost: dashboard.example.com
+  tls: true
+  clusterIssuer: letsencrypt
+  controllerNamespace: kube-system   # Traefik runs in kube-system on k3s
+
+store:
+  adminEmail: you@example.com
+  wordpress:
+    storage: 10Gi
+  mariadb:
+    storage: 10Gi
+
+gateway:
+  adminEmail: you@example.com
+  storage: 2Gi

@@ -1,0 +1,25 @@
+# values-local.yaml - for Kind on your own computer.
+#
+# Local domains: we use "localtest.me". Every name under it points to
+# 127.0.0.1 in public DNS, so you do NOT need to edit your hosts file.
+#   http://store.localtest.me      -> the store
+#   http://dashboard.localtest.me  -> the dashboard and the /mcp endpoint
+images:
+  registry: team-mcp
+  tag: dev
+  pullPolicy: IfNotPresent   # images are loaded with "kind load docker-image"
+
+storageClass: ""             # Kind's default ("standard")
+
+ingress:
+  className: nginx
+  storeHost: store.localtest.me
+  dashboardHost: dashboard.localtest.me
+  tls: false
+  controllerNamespace: ingress-nginx
+
+store:
+  adminEmail: admin@example.com
+
+gateway:
+  adminEmail: admin@example.com
