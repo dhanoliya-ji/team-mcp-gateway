@@ -14,8 +14,8 @@ storageClass: local-path     # k3s comes with the "local-path" storage class
 
 ingress:
   className: traefik         # k3s comes with Traefik as the ingress controller
-  storeHost: store.example.com
-  dashboardHost: dashboard.example.com
+  storeHost: store.example.com          # deploy-vps.sh sets store.<IP>.sslip.io
+  dashboardHost: dashboard.example.com  # deploy-vps.sh sets dashboard.<IP>.sslip.io
   tls: true
   clusterIssuer: letsencrypt
   controllerNamespace: kube-system   # Traefik runs in kube-system on k3s
