@@ -107,14 +107,26 @@ export function forgetServer(serverId) {
 
 // ---------- Tools ----------
 
-// All tools from all enabled + connected servers, with the server name in front.
-export function listAllTools() {
+// Tool permissions: an admin can mark some tools "admin only".
+// Members do not see these tools, and cannot call them.
+export function adminOnlyList(server) {
+  return (server.admin_only_tools || "").split(",").filter((name) => name !== "");
+}
+
+export function isToolAllowed(server, toolName, user) {
+  if (user.role === "admin") return true;
+  return !adminOnlyList(server).includes(toolName);
+}
+
+// All tools this user may use, from all enabled + connected servers.
+export function listAllTools(user) {
   const tools = [];
   for (const server of getAllServers()) {
     if (!server.enabled) continue;
     const status = getStatus(server.id);
     if (status.status !== "Connected") continue;
     for (const tool of status.tools) {
+      if (!isToolAllowed(server, tool.name, user)) continue;
       tools.push({ server: server.name, tool: tool });
     }
   }

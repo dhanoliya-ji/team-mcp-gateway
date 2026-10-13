@@ -7,7 +7,7 @@ import { db, now } from "../db.js";
 import { encrypt } from "../security.js";
 import { requireLogin, requireAdmin } from "../auth.js";
 import { checkServerUrl } from "../url-check.js";
-import { getAllServers, getStatus, checkServer, forgetServer } from "../upstreams.js";
+import { getAllServers, getStatus, checkServer, forgetServer, adminOnlyList, isToolAllowed } from "../upstreams.js";
 
 export const serverRoutes = express.Router();
 serverRoutes.use(requireLogin);
@@ -19,7 +19,8 @@ const AUTH_TYPES = ["none", "bearer", "header"];
 
 // What the browser may see about a server.
 // Note: no secret here! Only "hasCredential: true/false".
-function publicServer(server) {
+// Members do not see "admin only" tools.
+function publicServer(server, user) {
   const status = getStatus(server.id);
   return {
     id: server.id,
@@ -32,7 +33,10 @@ function publicServer(server) {
     status: status.status,
     error: status.error,
     checkedAt: status.checkedAt,
-    tools: status.tools.map((t) => ({ name: t.name, description: t.description })),
+    tools: status.tools
+      .filter((t) => isToolAllowed(server, t.name, user))
+      .map((t) => ({ name: t.name, description: t.description })),
+    adminOnlyTools: adminOnlyList(server),
   };
 }
 
@@ -42,7 +46,7 @@ function findServer(id) {
 
 // GET /api/servers
 serverRoutes.get("/", (req, res) => {
-  res.json({ servers: getAllServers().map(publicServer) });
+  res.json({ servers: getAllServers().map((server) => publicServer(server, req.user)) });
 });
 
 // POST /api/servers  { name, url, authType, authHeaderName, secret }
@@ -70,7 +74,7 @@ serverRoutes.post("/", requireAdmin, async (req, res) => {
   // Check it right away, so the admin sees the status and tools.
   const server = findServer(result.lastInsertRowid);
   await checkServer(server);
-  res.json({ server: publicServer(server) });
+  res.json({ server: publicServer(server, req.user) });
 });
 
 // PUT /api/servers/:id  { url?, authType?, authHeaderName?, secret?, enabled? }
@@ -83,6 +87,10 @@ serverRoutes.put("/:id", requireAdmin, async (req, res) => {
   const authType = req.body.authType ?? server.auth_type;
   const authHeaderName = req.body.authHeaderName ?? server.auth_header_name;
   const enabled = req.body.enabled === undefined ? server.enabled : req.body.enabled ? 1 : 0;
+  // A list of tool names that only admins may use, saved as "a,b,c".
+  const adminOnlyTools = Array.isArray(req.body.adminOnlyTools)
+    ? req.body.adminOnlyTools.join(",")
+    : server.admin_only_tools;
   let secretEncrypted = server.secret_encrypted;
   if (req.body.secret) secretEncrypted = encrypt(req.body.secret);
   if (authType === "none") secretEncrypted = null;
@@ -97,12 +105,12 @@ serverRoutes.put("/:id", requireAdmin, async (req, res) => {
   }
 
   db.prepare(
-    "UPDATE servers SET url = ?, auth_type = ?, auth_header_name = ?, secret_encrypted = ?, enabled = ? WHERE id = ?"
-  ).run(url, authType, authHeaderName, secretEncrypted, enabled, server.id);
+    "UPDATE servers SET url = ?, auth_type = ?, auth_header_name = ?, secret_encrypted = ?, enabled = ?, admin_only_tools = ? WHERE id = ?"
+  ).run(url, authType, authHeaderName, secretEncrypted, enabled, adminOnlyTools, server.id);
 
   const updated = findServer(server.id);
   await checkServer(updated);
-  res.json({ server: publicServer(updated) });
+  res.json({ server: publicServer(updated, req.user) });
 });
 
 // DELETE /api/servers/:id
@@ -119,5 +127,5 @@ serverRoutes.post("/:id/check", async (req, res) => {
   const server = findServer(req.params.id);
   if (!server) return res.status(404).json({ error: "Server not found" });
   await checkServer(server);
-  res.json({ server: publicServer(server) });
+  res.json({ server: publicServer(server, req.user) });
 });

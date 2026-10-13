@@ -11,7 +11,7 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { ListToolsRequestSchema, CallToolRequestSchema } from "@modelcontextprotocol/sdk/types.js";
-import { listAllTools, getServerByName, getStatus, callUpstreamTool, SEPARATOR } from "./upstreams.js";
+import { listAllTools, getServerByName, getStatus, callUpstreamTool, isToolAllowed, SEPARATOR } from "./upstreams.js";
 import { writeAudit } from "./audit.js";
 import { now } from "./db.js";
 
@@ -22,7 +22,7 @@ function errorResult(message) {
 
 // The tools one user can see, with names like "woocommerce__list_orders".
 export function toolsForUser(user) {
-  return listAllTools().map(({ server, tool }) => ({
+  return listAllTools(user).map(({ server, tool }) => ({
     name: server + SEPARATOR + tool.name,
     // We put the server name in front, so people and models know where it comes from.
     description: "[" + server + "] " + (tool.description || "").slice(0, 1000),
@@ -49,6 +49,11 @@ export async function callToolAsUser(user, via, fullName, args) {
   const server = getServerByName(serverName);
   if (!server) return finish(errorResult("Unknown tool: " + fullName), false, "Unknown server");
   if (!server.enabled) return finish(errorResult("Server '" + serverName + "' is disabled"), false, "Server disabled");
+
+  // Tool permissions: members cannot call "admin only" tools, even if they know the name.
+  if (!isToolAllowed(server, toolName, user)) {
+    return finish(errorResult("You are not allowed to use " + fullName), false, "Not allowed for role " + user.role);
+  }
 
   // Only allow tools that the server really has (from the last health check).
   const known = getStatus(server.id).tools.some((t) => t.name === toolName);
