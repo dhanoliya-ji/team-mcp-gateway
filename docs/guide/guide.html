@@ -390,6 +390,8 @@
 <tr><td>Pods stuck in <code>CreateContainerConfigError</code></td><td><code>runAsNonRoot: true</code> but the image said <code>USER node</code> (a name). Kubernetes needs a number to check.</td><td><code>USER 1000</code> in the Dockerfiles (same user, as a number).</td></tr>
 <tr><td>Setup Job failed: "WooCommerce needs WordPress 7.0"</td><td>The newest WooCommerce (11.2) needs WordPress 7; we started with the 6.8 image.</td><td>Use <code>wordpress:7.0-php8.3-apache</code>; clean reinstall.</td></tr>
 <tr><td>WordPress as non-root cannot open port 80</td><td>Ports below 1024 need root.</td><td>Safe sysctl <code>net.ipv4.ip_unprivileged_port_start=0</code> on the pod. (Editing Apache's config was not possible as non-root.)</td></tr>
+<tr><td>Chat failed: "model llama-3.3-70b-versatile does not exist"</td><td>Groq retired that model.</td><td>Default model is now <code>openai/gpt-oss-120b</code> (supports tool calling). It is one Helm value: <code>llm.model</code>.</td></tr>
+<tr><td>Chat failed with "429 rate limit"</td><td>Groq free tier allows about 8000 tokens per minute; one chat with tools uses a lot.</td><td>The gateway waits 5 s / 10 s and tries again (up to 3 times).</td></tr>
 <tr><td>Product links showed <code>https://</code> locally</td><td>Our <code>X-Forwarded-Proto: https</code> header makes WordPress build https links.</td><td>The MCP server rewrites links to <code>STORE_PUBLIC_URL</code>.</td></tr>
 </table>
 
@@ -411,7 +413,11 @@
 <tr><td>Tool permissions</td><td>Locked create_product hidden from member and rejected if called; admin sees all 6</td></tr>
 <tr><td>NetworkPolicy</td><td>Random pod cannot reach woo-mcp-server; gateway can</td></tr>
 <tr><td>Helm upgrade and rollback</td><td>Rollback to revision 1 and upgrade again worked; same Secrets and data</td></tr>
-<tr><td>Chat agent</td><td>Needs your LLM key in the <code>llm-secret</code> Secret. Without a key it answers "no LLM API key". (Run the chat test after adding the key.)</td></tr>
+<tr><td>Chat (user A): "Create a product called Demo Lamp with price 30"</td><td>Called <code>woocommerce__create_product</code>; product #15 appeared in the store</td></tr>
+<tr><td>Bought Demo Lamp in the store, then chat: "What orders came in today?"</td><td>Called <code>woocommerce__list_orders {date: today}</code>; answered with orders #16 (Demo Lamp) and #14</td></tr>
+<tr><td>Chat: "What is the total of today's orders in EUR?"</td><td>Two servers: <code>woocommerce__list_orders</code> + <code>utils__convert_currency</code></td></tr>
+<tr><td>Chat: "List today's orders and save a short summary as a team note"</td><td>Two servers: <code>woocommerce__list_orders</code> + <code>notes__add_note</code></td></tr>
+<tr><td>Audit log for chat calls</td><td>Every call under <code>user-a@example.com</code>, via = chat</td></tr>
 </table>
 
 <div class="page-break"></div>
