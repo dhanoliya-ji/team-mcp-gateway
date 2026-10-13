@@ -73,7 +73,7 @@ The dashboard sends the chat history to `POST /api/chat`. The gateway then:
 
 1. Opens an MCP client to **its own `/mcp` endpoint** with the user's **login token**, so the agent is just
    another MCP client acting as that user (same tool list, same permissions, same audit log, `via = chat`).
-2. Gives the tools to the LLM (OpenAI-style `tools` format; default Groq `llama-3.3-70b-versatile`).
+2. Gives the tools to the LLM (OpenAI-style `tools` format; default Groq `openai/gpt-oss-120b`).
 3. Loop (max 8 rounds): if the LLM asks for tools, call them through the gateway, add the results,
    ask again. If it answers with text, return the answer and the list of tool calls to the UI.
 

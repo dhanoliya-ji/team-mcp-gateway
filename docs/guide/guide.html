@@ -152,7 +152,7 @@
 <tr><td>Store setup</td><td>WP-CLI (<code>wordpress:cli</code> image) in a Helm hook Job</td><td>Installs everything with no clicks, and is safe to run again.</td></tr>
 <tr><td>Local Kubernetes</td><td>Kind v0.33 + ingress-nginx</td><td>A real cluster in Docker. Port 80/443 mapped to the laptop.</td></tr>
 <tr><td>Packaging</td><td>One Helm chart, values-local.yaml / values-prod.yaml</td><td>Required. Same chart, only values change.</td></tr>
-<tr><td>LLM</td><td>Any OpenAI-style API. Default: Groq, <code>llama-3.3-70b-versatile</code></td><td>Free tier, fast, supports tool calling. Gemini or a local Ollama also work by changing two values.</td></tr>
+<tr><td>LLM</td><td>Any OpenAI-style API. Default: Groq, <code>openai/gpt-oss-120b</code></td><td>Free tier, fast, supports tool calling. Gemini or a local Ollama also work by changing two values.</td></tr>
 <tr><td>Production images</td><td>GitHub Actions -> ghcr.io</td><td>The VPS pulls ready images.</td></tr>
 </table>
 

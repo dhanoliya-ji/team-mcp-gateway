@@ -90,7 +90,7 @@ dashboard:
 #   kubectl -n mcp create secret generic llm-secret --from-literal=LLM_API_KEY=...
 llm:
   baseUrl: https://api.groq.com/openai/v1
-  model: llama-3.3-70b-versatile
+  model: openai/gpt-oss-120b
   existingSecret: llm-secret
 
 # ---------- Security ----------
