@@ -1,0 +1,98 @@
+# values.yaml - default settings for the chart.
+# values-local.yaml and values-prod.yaml change only what is different.
+# NOTE: no passwords here! Passwords are made at install time (see templates/secrets.yaml).
+
+# ---------- Our own images ----------
+images:
+  # Image name = <registry>/<name>:<tag>, for example team-mcp/gateway:dev
+  registry: team-mcp
+  tag: dev
+  pullPolicy: IfNotPresent
+
+# ---------- Storage ----------
+# "" means "use the cluster's default storage class".
+# Kind and k3s both have "standard"/"local-path" by default.
+storageClass: ""
+
+# ---------- Ingress (public URLs) ----------
+ingress:
+  className: nginx
+  storeHost: store.localtest.me
+  dashboardHost: dashboard.localtest.me
+  # TLS with cert-manager (for production)
+  tls: false
+  clusterIssuer: ""
+  # The namespace where the ingress controller runs.
+  # NetworkPolicies allow traffic only from there.
+  controllerNamespace: ingress-nginx
+
+# ---------- Store: WordPress + WooCommerce + MariaDB ----------
+store:
+  title: "Team Store"
+  adminUser: admin
+  adminEmail: admin@example.com
+  timezone: "Asia/Kolkata"
+
+  wordpress:
+    image: wordpress:6.8-php8.3-apache
+    storage: 2Gi
+    resources:
+      requests: { cpu: 100m, memory: 256Mi }
+      limits: { cpu: "1", memory: 768Mi }
+
+  mariadb:
+    image: mariadb:11.4
+    storage: 2Gi
+    resources:
+      requests: { cpu: 100m, memory: 256Mi }
+      limits: { cpu: "1", memory: 768Mi }
+
+  # The setup Job installs WordPress + WooCommerce with WP-CLI.
+  setup:
+    image: wordpress:cli-php8.3
+    resources:
+      requests: { cpu: 100m, memory: 128Mi }
+      limits: { cpu: "1", memory: 512Mi }
+
+# ---------- MCP servers ----------
+wooMcp:
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { cpu: 500m, memory: 256Mi }
+
+notesMcp:
+  resources:
+    requests: { cpu: 20m, memory: 48Mi }
+    limits: { cpu: 200m, memory: 128Mi }
+
+utilsMcp:
+  resources:
+    requests: { cpu: 20m, memory: 48Mi }
+    limits: { cpu: 200m, memory: 128Mi }
+
+# ---------- Gateway + dashboard ----------
+gateway:
+  adminEmail: admin@example.com
+  storage: 1Gi
+  callTimeoutMs: 20000
+  resources:
+    requests: { cpu: 50m, memory: 96Mi }
+    limits: { cpu: "1", memory: 384Mi }
+
+dashboard:
+  resources:
+    requests: { cpu: 10m, memory: 32Mi }
+    limits: { cpu: 200m, memory: 128Mi }
+
+# ---------- Chat agent LLM ----------
+# Any OpenAI-style API works (Groq, Gemini, OpenRouter, Ollama...).
+# The API key is NOT here. Create it as a Secret yourself:
+#   kubectl -n mcp create secret generic llm-secret --from-literal=LLM_API_KEY=...
+llm:
+  baseUrl: https://api.groq.com/openai/v1
+  model: llama-3.3-70b-versatile
+  existingSecret: llm-secret
+
+# ---------- Security ----------
+networkPolicy:
+  enabled: true
