@@ -1,0 +1,48 @@
+# utils-mcp-server.yaml
+# The utils MCP server (one of our two extra upstream servers).
+# It has a ClusterIP Service only (no Ingress), so it is NOT reachable from
+# outside the cluster. The NetworkPolicy also lets ONLY the gateway call it.
+apiVersion: v1
+kind: Service
+metadata:
+  name: utils-mcp-server
+  labels: { app: utils-mcp-server }
+spec:
+  type: ClusterIP
+  selector: { app: utils-mcp-server }
+  ports:
+    - port: 3000
+      targetPort: 3000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: utils-mcp-server
+  labels: { app: utils-mcp-server }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: utils-mcp-server }
+  template:
+    metadata:
+      labels: { app: utils-mcp-server }
+    spec:
+      containers:
+        - name: utils-mcp-server
+          image: {{ include "tmg.image" (list . "utils-mcp-server") }}
+          imagePullPolicy: {{ .Values.images.pullPolicy }}
+          ports:
+            - containerPort: 3000
+          env:
+            - name: MCP_TOKEN
+              valueFrom: { secretKeyRef: { name: app-secrets, key: UTILS_MCP_TOKEN } }
+          readinessProbe:
+            httpGet: { path: /healthz, port: 3000 }
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /healthz, port: 3000 }
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            {{- toYaml .Values.utilsMcp.resources | nindent 12 }}
+          {{- include "tmg.containerSecurity" . | nindent 10 }}
