@@ -1,0 +1,43 @@
+# Build our 5 images and push them to GitHub Container Registry (ghcr.io).
+# It runs when you push a tag like "v1.0.0". values-prod.yaml uses these images.
+#
+#   git tag v1.0.0 && git push origin v1.0.0
+#
+# Images: ghcr.io/<owner>/team-mcp-gateway/<name>:1.0.0
+name: Build images
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  packages: write   # needed to push to ghcr.io
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        name: [woo-mcp-server, notes-mcp-server, utils-mcp-server, gateway, dashboard]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # "v1.0.0" -> "1.0.0". Without a tag we use "latest".
+      - name: Pick the image tag
+        id: tag
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then echo "tag=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT; else echo "tag=latest" >> $GITHUB_OUTPUT; fi
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: ./${{ matrix.name }}
+          push: true
+          tags: ghcr.io/${{ github.repository_owner }}/team-mcp-gateway/${{ matrix.name }}:${{ steps.tag.outputs.tag }}
