@@ -1,0 +1,146 @@
+# store-setup.yaml
+# A Job that sets up the store with WP-CLI, after install and after every upgrade:
+#   1. install WordPress (only the first time)
+#   2. install + turn on WooCommerce
+#   3. turn on "Cash on delivery" so we can test checkout
+#   4. make the REST API key that our WooCommerce MCP server uses
+#   5. add a few demo products (only the first time)
+# Every step is safe to run again ("idempotent").
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: store-setup-scripts
+data:
+  setup.sh: |
+    set -e
+    cd /var/www/html
+
+    echo "Step 0: wait for WordPress files and the database"
+    until [ -f wp-config.php ]; do echo "  waiting for wp-config.php..."; sleep 5; done
+    until wp db query "SELECT 1" > /dev/null 2>&1; do echo "  waiting for database..."; sleep 5; done
+
+    echo "Step 1: install WordPress (first time only)"
+    if ! wp core is-installed; then
+      wp core install --url="$STORE_URL" --title="$STORE_TITLE" \
+        --admin_user="$WP_ADMIN_USER" --admin_password="$WP_ADMIN_PASSWORD" \
+        --admin_email="$WP_ADMIN_EMAIL" --skip-email
+    fi
+    # Always set the URL, so a new domain in values-prod.yaml just works.
+    wp option update home "$STORE_URL"
+    wp option update siteurl "$STORE_URL"
+    wp option update timezone_string "$STORE_TIMEZONE"
+
+    echo "Step 2: install WooCommerce"
+    if ! wp plugin is-installed woocommerce; then
+      wp plugin install woocommerce --activate
+    else
+      wp plugin activate woocommerce
+    fi
+
+    echo "Step 3: store settings"
+    wp option update woocommerce_coming_soon no            # store is open to everyone
+    wp option update woocommerce_default_country "US:CA"
+    wp option update woocommerce_currency USD
+    wp option update woocommerce_ship_to_countries disabled # no shipping step at checkout
+    wp option update woocommerce_onboarding_profile '{"skipped":true}' --format=json
+    wp wc tool run install_pages --user="$WP_ADMIN_USER" || true   # shop, cart, checkout pages
+    wp option update woocommerce_cod_settings --format=json \
+      '{"enabled":"yes","title":"Cash on delivery","description":"Pay with cash when it arrives.","instructions":"","enable_for_methods":[],"enable_for_virtual":"yes"}'
+
+    echo "Step 4: REST API key for the MCP server"
+    wp eval-file /scripts/api-key.php
+
+    echo "Step 5: demo products (first time only)"
+    if [ "$(wp post list --post_type=product --format=count)" = "0" ]; then
+      wp wc product create --user="$WP_ADMIN_USER" --name="Team T-Shirt" --regular_price=20 --status=publish
+      wp wc product create --user="$WP_ADMIN_USER" --name="Coffee Mug" --regular_price=12 --status=publish
+      wp wc product create --user="$WP_ADMIN_USER" --name="Sticker Pack" --regular_price=5 --status=publish
+    fi
+
+    echo "Store setup is done."
+
+  api-key.php: |
+    <?php
+    // Save a WooCommerce REST API key with values from our Kubernetes Secret.
+    // WooCommerce stores a HASH of the consumer key (wc_api_hash), and the secret as-is.
+    global $wpdb;
+    $table  = $wpdb->prefix . 'woocommerce_api_keys';
+    $key    = getenv('WOO_CONSUMER_KEY');
+    $secret = getenv('WOO_CONSUMER_SECRET');
+    $user   = get_user_by('login', getenv('WP_ADMIN_USER'));
+
+    // Remove the old key (if any), then add the current one.
+    $wpdb->delete($table, array('description' => 'team-mcp-gateway'));
+    $wpdb->insert($table, array(
+      'user_id'         => $user->ID,
+      'description'     => 'team-mcp-gateway',
+      'permissions'     => 'read_write',
+      'consumer_key'    => wc_api_hash($key),
+      'consumer_secret' => $secret,
+      'truncated_key'   => substr($key, -7),
+    ));
+    echo "API key is ready.\n";
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: store-setup
+  annotations:
+    # Helm runs this Job after install and after upgrade.
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  backoffLimit: 5
+  activeDeadlineSeconds: 1200   # give up after 20 minutes
+  template:
+    metadata:
+      labels: { app: store-setup }
+    spec:
+      restartPolicy: OnFailure
+      # Same user as WordPress (33), so file owners match.
+      securityContext:
+        runAsUser: 33
+        runAsGroup: 33
+        fsGroup: 33
+      containers:
+        - name: setup
+          image: {{ .Values.store.setup.image }}
+          command: ["sh", "/scripts/setup.sh"]
+          env:
+            {{- include "tmg.wordpressEnv" . | nindent 12 }}
+            - name: HOME
+              value: /tmp
+            - name: WP_CLI_CACHE_DIR
+              value: /tmp/wp-cli-cache
+            - name: STORE_URL
+              value: {{ include "tmg.storeUrl" . | quote }}
+            - name: STORE_TITLE
+              value: {{ .Values.store.title | quote }}
+            - name: STORE_TIMEZONE
+              value: {{ .Values.store.timezone | quote }}
+            - name: WP_ADMIN_USER
+              value: {{ .Values.store.adminUser | quote }}
+            - name: WP_ADMIN_EMAIL
+              value: {{ .Values.store.adminEmail | quote }}
+            - name: WP_ADMIN_PASSWORD
+              valueFrom: { secretKeyRef: { name: app-secrets, key: WP_ADMIN_PASSWORD } }
+            - name: WOO_CONSUMER_KEY
+              valueFrom: { secretKeyRef: { name: app-secrets, key: WOO_CONSUMER_KEY } }
+            - name: WOO_CONSUMER_SECRET
+              valueFrom: { secretKeyRef: { name: app-secrets, key: WOO_CONSUMER_SECRET } }
+          volumeMounts:
+            - name: files
+              mountPath: /var/www/html
+            - name: scripts
+              mountPath: /scripts
+          resources:
+            {{- toYaml .Values.store.setup.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+      volumes:
+        - name: files
+          persistentVolumeClaim:
+            claimName: wordpress-files
+        - name: scripts
+          configMap:
+            name: store-setup-scripts
