@@ -1,0 +1,17 @@
+# cluster-issuer.yaml (production only)
+# Tells cert-manager to get free TLS certificates from Let's Encrypt.
+# Change the email first. Apply with:  kubectl apply -f scripts/cluster-issuer.yaml
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: you@example.com
+    privateKeySecretRef:
+      name: letsencrypt-account-key
+    solvers:
+      - http01:
+          ingress:
+            ingressClassName: traefik
