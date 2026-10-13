@@ -7,7 +7,7 @@
 #   3. (TLS) Install cert-manager and a ClusterIssuer named "letsencrypt".
 images:
   registry: ghcr.io/dhanoliya-ji/team-mcp-gateway
-  tag: "1.0.0"
+  tag: "1.0.1"
   pullPolicy: IfNotPresent
 
 storageClass: local-path     # k3s comes with the "local-path" storage class
