@@ -1,0 +1,24 @@
+# Kind cluster config for local work.
+# Kind runs Kubernetes inside Docker.
+#
+# We open port 80 and 443 on your computer and send them to the cluster.
+# The ingress-nginx controller listens there, so you can open
+# http://store.localtest.me and http://dashboard.localtest.me in your browser.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: mcp
+nodes:
+  - role: control-plane
+    kubeadmConfigPatches:
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: "ingress-ready=true"
+    extraPortMappings:
+      - containerPort: 80
+        hostPort: 80
+        protocol: TCP
+      - containerPort: 443
+        hostPort: 443
+        protocol: TCP
