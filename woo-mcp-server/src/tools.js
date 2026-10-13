@@ -18,6 +18,17 @@ function todayInStore() {
   return new Intl.DateTimeFormat("en-CA", { timeZone: STORE_TIMEZONE }).format(new Date());
 }
 
+// The public store address, for product links (for example http://store.localtest.me).
+const STORE_PUBLIC_URL = process.env.STORE_PUBLIC_URL || "";
+
+// WordPress makes links with "https://" because of our X-Forwarded-Proto header.
+// We swap the start of the link for the real public store address.
+function publicLink(link) {
+  if (!STORE_PUBLIC_URL || !link) return link;
+  const url = new URL(link);
+  return STORE_PUBLIC_URL + url.pathname + url.search;
+}
+
 // MCP tools must return "content". We send back JSON as text.
 function reply(data) {
   return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
@@ -31,7 +42,7 @@ function shortProduct(p) {
     price: p.price,
     status: p.status,
     stock_status: p.stock_status,
-    link: p.permalink,
+    link: publicLink(p.permalink),
   };
 }
 

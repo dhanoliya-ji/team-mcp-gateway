@@ -36,6 +36,8 @@ spec:
           env:
             - name: WOO_URL
               value: http://wordpress
+            - name: STORE_PUBLIC_URL
+              value: {{ include "tmg.storeUrl" . | quote }}
             - name: STORE_TIMEZONE
               value: {{ .Values.store.timezone | quote }}
             - name: WOO_CONSUMER_KEY
