@@ -30,3 +30,18 @@ storageClassName: {{ .Values.storageClass }}
 {{- define "tmg.storeUrl" -}}
 {{ if .Values.ingress.tls }}https{{ else }}http{{ end }}://{{ .Values.ingress.storeHost }}
 {{- end -}}
+
+{{/*
+Database settings for WordPress. Used by the WordPress pod AND the setup Job,
+because WP-CLI reads the same wp-config.php, which reads these env vars.
+*/}}
+{{- define "tmg.wordpressEnv" -}}
+- name: WORDPRESS_DB_HOST
+  value: mariadb
+- name: WORDPRESS_DB_NAME
+  value: wordpress
+- name: WORDPRESS_DB_USER
+  value: wordpress
+- name: WORDPRESS_DB_PASSWORD
+  valueFrom: { secretKeyRef: { name: app-secrets, key: WP_DB_PASSWORD } }
+{{- end -}}

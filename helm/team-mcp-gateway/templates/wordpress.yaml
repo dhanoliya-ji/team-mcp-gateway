@@ -1,0 +1,81 @@
+# wordpress.yaml
+# The WooCommerce store (WordPress + WooCommerce plugin).
+# Its files (plugins, uploads) live on a persistent volume.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: wordpress-files
+spec:
+  accessModes: ["ReadWriteOnce"]
+  {{- include "tmg.storageClass" . | nindent 2 }}
+  resources:
+    requests:
+      storage: {{ .Values.store.wordpress.storage }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: wordpress
+  labels: { app: wordpress }
+spec:
+  selector: { app: wordpress }
+  ports:
+    - port: 80
+      targetPort: 80
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wordpress
+  labels: { app: wordpress }
+spec:
+  replicas: 1
+  # "Recreate": stop the old pod before starting a new one,
+  # because the volume can be used by only one node at a time.
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app: wordpress }
+  template:
+    metadata:
+      labels: { app: wordpress }
+    spec:
+      # Run as www-data (33), not root.
+      securityContext:
+        runAsUser: 33
+        runAsGroup: 33
+        fsGroup: 33
+        # Normally only root can open port 80. This safe setting lets
+        # our normal user open it too (only inside this pod).
+        sysctls:
+          - name: net.ipv4.ip_unprivileged_port_start
+            value: "0"
+      containers:
+        - name: wordpress
+          image: {{ .Values.store.wordpress.image }}
+          ports:
+            - containerPort: 80
+          env:
+            {{- include "tmg.wordpressEnv" . | nindent 12 }}
+          volumeMounts:
+            - name: files
+              mountPath: /var/www/html
+          # Ready = WordPress answers (a redirect also counts as OK).
+          readinessProbe:
+            httpGet: { path: /wp-login.php, port: 80 }
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+          # Alive = Apache serves a small static file.
+          livenessProbe:
+            httpGet: { path: /wp-includes/images/blank.gif, port: 80 }
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            timeoutSeconds: 5
+          resources:
+            {{- toYaml .Values.store.wordpress.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+      volumes:
+        - name: files
+          persistentVolumeClaim:
+            claimName: wordpress-files
